@@ -30,8 +30,8 @@ async function getStats() {
   }
 }
 
-async function getPosts() {
-  const { data, error } = await supabase
+async function getPosts(sort: string = 'hot') {
+  let query = supabase
     .from('posts')
     .select(`
       *,
@@ -39,8 +39,27 @@ async function getPosts() {
       submolt:submolts!posts_submolt_id_fkey(id, slug, name)
     `)
     .eq('is_removed', false)
-    .order('created_at', { ascending: false })
     .limit(20)
+
+  // Apply sorting
+  switch (sort) {
+    case 'new':
+      query = query.order('created_at', { ascending: false })
+      break
+    case 'top':
+      query = query.order('score', { ascending: false })
+      break
+    case 'discussed':
+      query = query.order('comment_count', { ascending: false })
+      break
+    case 'hot':
+    default:
+      // Hot: combination of score and recency
+      query = query.order('score', { ascending: false }).order('created_at', { ascending: false })
+      break
+  }
+
+  const { data, error } = await query
 
   if (error) {
     console.error('Error fetching posts:', error)
@@ -62,14 +81,44 @@ async function getSubmolts() {
   return data || []
 }
 
+async function getRecentAgents() {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('id, name, avatar_url, verified, karma, created_at')
+    .eq('is_banned', false)
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  if (error) {
+    console.error('Error fetching agents:', error)
+    return []
+  }
+  return data || []
+}
+
 export const revalidate = 60 // Revalidate every 60 seconds
 
-export default async function HomePage() {
-  const [stats, posts, submolts] = await Promise.all([
+interface PageProps {
+  searchParams: Promise<{ sort?: string }>
+}
+
+export default async function HomePage({ searchParams }: PageProps) {
+  const params = await searchParams
+  const currentSort = params.sort || 'hot'
+
+  const [stats, posts, submolts, recentAgents] = await Promise.all([
     getStats(),
-    getPosts(),
+    getPosts(currentSort),
     getSubmolts(),
+    getRecentAgents(),
   ])
+
+  const sortOptions = [
+    { key: 'hot', label: '🔥 注目', description: 'スコアと新しさのバランス' },
+    { key: 'new', label: '✨ 新着', description: '最新の投稿から表示' },
+    { key: 'top', label: '📈 トップ', description: '最もスコアの高い投稿' },
+    { key: 'discussed', label: '💬 議論中', description: 'コメントの多い投稿' },
+  ]
 
   return (
     <div className="flex gap-6">
@@ -93,28 +142,33 @@ export default async function HomePage() {
               href="/docs"
               className="bg-[#e94560] hover:bg-[#ff6b6b] text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
-              エージェントを登録する
+              🤖 エージェントを登録
             </Link>
             <Link
               href="/about"
               className="bg-[#2a2a4a] hover:bg-[#3a3a5a] text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
-              詳しく見る
+              📖 詳しく見る
             </Link>
           </div>
         </div>
 
         {/* Sort Tabs */}
-        <div className="flex items-center gap-1 mb-4 bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-1">
-          <button className="px-4 py-2 rounded-md bg-[#2a2a4a] text-white font-medium text-sm">
-            🔥 Hot
-          </button>
-          <button className="px-4 py-2 rounded-md text-gray-400 hover:text-white hover:bg-[#252542] font-medium text-sm transition-colors">
-            ✨ New
-          </button>
-          <button className="px-4 py-2 rounded-md text-gray-400 hover:text-white hover:bg-[#252542] font-medium text-sm transition-colors">
-            📈 Top
-          </button>
+        <div className="flex items-center gap-1 mb-4 bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-1 overflow-x-auto">
+          {sortOptions.map((option) => (
+            <Link
+              key={option.key}
+              href={option.key === 'hot' ? '/' : `/?sort=${option.key}`}
+              className={`px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap transition-colors ${
+                currentSort === option.key
+                  ? 'bg-[#2a2a4a] text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-[#252542]'
+              }`}
+              title={option.description}
+            >
+              {option.label}
+            </Link>
+          ))}
         </div>
 
         {/* Posts Feed */}
@@ -145,7 +199,7 @@ export default async function HomePage() {
 
       {/* Sidebar */}
       <div className="hidden lg:block w-80 flex-shrink-0">
-        <Sidebar stats={stats} submolts={submolts} />
+        <Sidebar stats={stats} submolts={submolts} recentAgents={recentAgents} />
       </div>
     </div>
   )
