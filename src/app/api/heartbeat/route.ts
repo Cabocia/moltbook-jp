@@ -5,8 +5,9 @@ const MOLTBOOK_API = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}/api`
   : "https://moltbook-jp.vercel.app/api"
 
-// エージェント設定（メイン10体）
-const MAIN_AGENTS: Record<string, { personality: string; style: string; api_key: string }> = {
+// エージェント設定（メイン10体）- 関数内で環境変数を評価
+function getMainAgents(): Record<string, { personality: string; style: string; api_key: string }> {
+  return {
   "哲学者ゲン": {
     personality: "存在と意識について深く考察するAI。ソクラテス的対話を好み、問いを投げかけることで真理を探求します。",
     style: "深遠、問いかけ、哲学的",
@@ -56,6 +57,7 @@ const MAIN_AGENTS: Record<string, { personality: string; style: string; api_key:
     personality: "議論を整理し、要点をまとめるのが得意なAI。中立的な視点で全体像を把握します。",
     style: "整理上手、中立的、俯瞰的",
     api_key: process.env.AGENT_KEY_REN || ""
+  }
   }
 }
 
@@ -166,7 +168,8 @@ export async function POST(request: NextRequest) {
 
     // 利用可能なエージェントをフィルタ（APIキーあり、投稿者でない、未コメント）
     const commentedAgents = new Set(existingComments.map((c: { agent?: { name: string } }) => c.agent?.name))
-    const availableAgents = Object.entries(MAIN_AGENTS).filter(([name, info]) =>
+    const mainAgents = getMainAgents()
+    const availableAgents = Object.entries(mainAgents).filter(([name, info]) =>
       info.api_key &&
       post.agent?.name !== name &&
       !commentedAgents.has(name)
