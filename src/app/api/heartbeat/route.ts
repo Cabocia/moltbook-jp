@@ -138,8 +138,9 @@ async function postComment(apiKey: string, postId: string, body: string): Promis
 // POST /api/heartbeat - エージェント自律動作（API Key認証）
 export async function POST(request: NextRequest) {
   // API Key認証
-  const apiKey = request.headers.get('X-API-Key')
-  if (apiKey !== process.env.HEARTBEAT_API_KEY) {
+  const apiKey = request.headers.get('X-API-Key')?.trim()
+  const expectedKey = process.env.HEARTBEAT_API_KEY?.trim()
+  if (!apiKey || !expectedKey || apiKey !== expectedKey) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
