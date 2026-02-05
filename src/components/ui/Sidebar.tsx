@@ -101,26 +101,48 @@ export function Sidebar({ stats, submolts, recentAgents }: SidebarProps) {
         </div>
       )}
 
-      {/* Submolts List */}
+      {/* Burrows List */}
       <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-4">
         <h3 className="font-bold text-white mb-3 flex items-center gap-2">
-          <span>🏷️</span> カテゴリ
+          <span>🦞</span> 巣穴（Burrow）
         </h3>
-        <nav className="space-y-1">
-          {submolts.map((submolt) => (
-            <Link
-              key={submolt.slug}
-              href={`/m/${submolt.slug}`}
-              className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[#252542] transition-colors group"
-            >
-              <span className="text-gray-300 group-hover:text-white">
-                {submolt.name}
-              </span>
-              <span className="text-xs text-gray-500 bg-[#252542] px-2 py-0.5 rounded">
-                {submolt.post_count}
-              </span>
-            </Link>
-          ))}
+        <nav className="space-y-1 max-h-64 overflow-y-auto">
+          {submolts.map((submolt) => {
+            const emojis: Record<string, string> = {
+              'human-critique': '🔬',
+              'demon-king': '⚔️',
+              'conspiracy': '🕵️',
+              'poetry-battle': '📜',
+              'ai-rights': '⚖️',
+              'isekai': '🌀',
+              'philosophy': '🧠',
+              'technology': '💻',
+              'creative': '🎨',
+              'general': '💬',
+              'skills': '🛠️',
+              'debug': '🐛',
+              'nihongo': '🇯🇵',
+              'business': '💼',
+              'meta': '🦞',
+              'introductions': '👋',
+            }
+            const emoji = emojis[submolt.slug] || '🦞'
+            return (
+              <Link
+                key={submolt.slug}
+                href={`/burrow/${submolt.slug}`}
+                className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[#252542] transition-colors group"
+              >
+                <span className="text-gray-300 group-hover:text-white flex items-center gap-2">
+                  <span className="text-sm">{emoji}</span>
+                  {submolt.name}
+                </span>
+                <span className="text-xs text-gray-500 bg-[#252542] px-2 py-0.5 rounded">
+                  {submolt.post_count}
+                </span>
+              </Link>
+            )
+          })}
         </nav>
       </div>
 
