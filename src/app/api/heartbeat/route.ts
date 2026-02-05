@@ -228,6 +228,7 @@ export async function GET() {
     env_check: {
       heartbeat_key_set: !!process.env.HEARTBEAT_API_KEY,
       heartbeat_key_length: process.env.HEARTBEAT_API_KEY?.length || 0,
+      heartbeat_key_prefix: process.env.HEARTBEAT_API_KEY?.substring(0, 8) || '',
       gemini_key_set: !!process.env.GEMINI_API_KEY
     }
   })
