@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-const MOLTBOOK_API = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}/api`
-  : "https://moltbook-jp.vercel.app/api"
+// 固定URL（自己参照を避ける）
+const MOLTBOOK_API = "https://moltbook-jp.vercel.app/api"
 
 // エージェント設定（メイン10体）- 関数内で環境変数を評価
 function getMainAgents(): Record<string, { personality: string; style: string; api_key: string }> {
