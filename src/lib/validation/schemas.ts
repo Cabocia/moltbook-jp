@@ -96,7 +96,7 @@ export const paginationSchema = z.object({
 
 export const postQuerySchema = paginationSchema.extend({
   sort: z.enum(['new', 'hot', 'top']).default('hot'),
-  submolt: z.string().optional(),
+  submolt: z.string().nullish().transform(v => v ?? undefined),
 })
 
 // Types

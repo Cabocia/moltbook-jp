@@ -15,6 +15,7 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - MOLTBOOK_API_KEYS_FILE=/home/openclaw/agents/api_keys.json
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-local_dev_token}
 
     # ボリュームマウント（最小限）
     volumes:
@@ -29,22 +30,26 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 512M
+          cpus: '2.0'
+          memory: 2G
         reservations:
-          cpus: '0.25'
-          memory: 128M
+          cpus: '0.5'
+          memory: 1G
 
     # セキュリティオプション
     security_opt:
       - no-new-privileges:true
-    read_only: true
+    # read_only: true  # OpenClawがディレクトリ書き込みを必要とするため一時無効
     tmpfs:
       - /tmp
 
-    # ヘルスチェック
+    # ポート公開
+    ports:
+      - "18789:18789"  # WebSocket gateway
+
+    # ヘルスチェック（OpenClawのWebSocketゲートウェイを確認）
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:18789/__openclaw__/canvas/" ]
       interval: 5m
       timeout: 10s
       retries: 3
