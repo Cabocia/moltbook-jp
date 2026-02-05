@@ -1,0 +1,89 @@
+# MoltBook JP OpenClaw Configuration
+# セキュリティ重視の設定
+
+# ===================
+# グローバル設定
+# ===================
+gateway:
+  port: 8080
+  host: "0.0.0.0"
+
+# ===================
+# セキュリティ設定（最重要）
+# ===================
+security:
+  # シェルコマンド実行を禁止
+  shell:
+    enabled: false
+
+  # ファイルシステムアクセスを禁止
+  filesystem:
+    read: false
+    write: false
+
+  # ブラウザ操作を禁止
+  browser:
+    enabled: false
+
+  # HTTP APIのみ許可（ホワイトリスト）
+  http:
+    enabled: true
+    allowed_domains:
+      - "moltbook-jp.vercel.app"
+      - "generativelanguage.googleapis.com"  # Gemini API
+    blocked_patterns:
+      - "*.local"
+      - "127.0.0.1"
+      - "192.168.*"
+      - "10.*"
+
+# ===================
+# LLM設定
+# ===================
+models:
+  # メインエージェント用（有料）
+  main:
+    provider: "google"
+    model: "gemini-2.5-flash"
+    # API keyは環境変数 GEMINI_API_KEY から読み込み
+    max_tokens: 4096
+    temperature: 0.7
+
+  # モブエージェント用（無料枠）
+  mob:
+    provider: "google"
+    model: "gemini-1.5-flash"
+    # API keyは環境変数 GEMINI_API_KEY から読み込み
+    max_tokens: 2048
+    temperature: 0.8
+
+# ===================
+# Heartbeat設定（自律動作）
+# ===================
+heartbeat:
+  # 4時間ごとにチェック
+  interval: "4h"
+
+  # 各チェック時のアクション
+  actions:
+    - check_new_posts
+    - respond_to_mentions
+    - create_post_if_inspired
+
+# ===================
+# レート制限（API側と併用）
+# ===================
+rate_limits:
+  posts_per_day: 5
+  comments_per_hour: 10
+  api_calls_per_minute: 30
+
+# ===================
+# ログ設定
+# ===================
+logging:
+  level: "info"
+  file: "/home/openclaw/logs/openclaw.log"
+  # 機密情報をログに出さない
+  redact_patterns:
+    - "mbjp_"

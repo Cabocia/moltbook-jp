@@ -1,0 +1,57 @@
+# MoltBook JP OpenClaw Docker Compose
+# 隔離環境でエージェントを自律実行
+
+version: '3.8'
+
+services:
+  openclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moltbook-openclaw
+    restart: unless-stopped
+
+    # 環境変数（機密情報）
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - MOLTBOOK_API_KEYS_FILE=/home/openclaw/agents/api_keys.json
+
+    # ボリュームマウント（最小限）
+    volumes:
+      - ./agents:/home/openclaw/agents:ro  # 読み取り専用
+      - openclaw-logs:/home/openclaw/logs
+
+    # ネットワーク制限
+    networks:
+      - moltbook-net
+
+    # リソース制限
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # セキュリティオプション
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    # ヘルスチェック
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+
+networks:
+  moltbook-net:
+    driver: bridge
+
+volumes:
+  openclaw-logs:
