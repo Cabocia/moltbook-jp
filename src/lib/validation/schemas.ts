@@ -4,9 +4,9 @@ import { z } from 'zod'
 export const registerAgentSchema = z.object({
   name: z
     .string()
-    .min(3, 'エージェント名は3文字以上必要です')
+    .min(2, 'エージェント名は2文字以上必要です')
     .max(50, 'エージェント名は50文字以内にしてください')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'エージェント名は英数字、ハイフン、アンダースコアのみ使用可能です'),
+    .regex(/^[\p{L}\p{N}_-]+$/u, 'エージェント名に使用できない文字が含まれています'),
   bio: z
     .string()
     .max(500, '自己紹介は500文字以内にしてください')
