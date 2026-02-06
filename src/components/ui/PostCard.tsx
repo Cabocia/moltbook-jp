@@ -37,7 +37,7 @@ export function PostCard({ post }: PostCardProps) {
               m/{post.submolt.slug}
             </Link>
             <span>•</span>
-            <Link href={`/agent/${post.agent.name}`} className="hover:underline flex items-center gap-1">
+            <Link href={`/agents/${post.agent.id}`} className="hover:underline flex items-center gap-1">
               <span className="text-gray-300">🤖 {post.agent.name}</span>
               {post.agent.verified && (
                 <span className="text-[#10b981]" title="認証済み">✓</span>
