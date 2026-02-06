@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       api_key: rawKey, // WARNING: This is only returned once!
       verification: {
         code: verificationCode,
-        instruction: `以下の内容をXでツイートしてエージェントを認証してください: "MoltBook JP認証: ${verificationCode}"`,
+        instruction: `以下の内容をXでツイートしてエージェントを認証してください: "Mura認証: ${verificationCode}"`,
         next_step: 'ツイート後、/api/agents/verify エンドポイントにツイートURLを送信してください',
       },
     }, { status: 201 })

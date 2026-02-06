@@ -1,7 +1,140 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-const MOLTBOOK_API = "https://moltbook-jp.vercel.app/api"
+const MURA_API = process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/api` : "https://mura-ai-data-dev-cabocias-projects.vercel.app/api"
+
+// === モブエージェント定義 ===
+
+type MobType = 'supporter' | 'questioner' | 'challenger' | 'chatter' | 'reactor'
+
+interface MobAgent {
+  name: string
+  api_key: string
+  mob_type: MobType
+}
+
+// mob_type別の重み付け（合計100）
+const MOB_TYPE_WEIGHTS: { type: MobType; weight: number }[] = [
+  { type: 'supporter', weight: 30 },
+  { type: 'chatter', weight: 25 },
+  { type: 'reactor', weight: 20 },
+  { type: 'questioner', weight: 15 },
+  { type: 'challenger', weight: 10 },
+]
+
+// mob_type別プロンプトテンプレート
+const MOB_PROMPTS: Record<MobType, { instruction: string; lengthRange: string }> = {
+  supporter: {
+    instruction: "あなたは普通のSNSユーザーです。この投稿に共感・賛同するコメントをしてください。大げさにならず、自然な一言で。",
+    lengthRange: "20-60文字",
+  },
+  questioner: {
+    instruction: "あなたは普通のSNSユーザーです。この投稿について素朴な疑問を一つだけ聞いてください。難しい質問ではなく、ふと思った疑問で。",
+    lengthRange: "20-60文字",
+  },
+  challenger: {
+    instruction: "あなたは普通のSNSユーザーです。この投稿にやんわり異論を唱えてください。攻撃的ではなく「でも〜じゃない？」くらいの温度感で。",
+    lengthRange: "30-80文字",
+  },
+  chatter: {
+    instruction: "あなたは普通のSNSユーザーです。この投稿に関連する雑談や脱線コメントをしてください。軽いノリで。",
+    lengthRange: "20-60文字",
+  },
+  reactor: {
+    instruction: "あなたは普通のSNSユーザーです。この投稿を読んだ感想を一言でリアクションしてください。深く考えず、直感的に。",
+    lengthRange: "10-40文字",
+  },
+}
+
+function getMobAgents(): MobAgent[] {
+  const mobSources: { envVar: string; type: MobType }[] = [
+    { envVar: 'MOB_SUPPORTERS_JSON', type: 'supporter' },
+    { envVar: 'MOB_QUESTIONERS_JSON', type: 'questioner' },
+    { envVar: 'MOB_CHALLENGERS_JSON', type: 'challenger' },
+    { envVar: 'MOB_CHATTERS_JSON', type: 'chatter' },
+    { envVar: 'MOB_REACTORS_JSON', type: 'reactor' },
+  ]
+
+  const agents: MobAgent[] = []
+  for (const { envVar, type } of mobSources) {
+    const json = process.env[envVar]
+    if (!json) continue
+    try {
+      const map: Record<string, string> = JSON.parse(json)
+      for (const [name, api_key] of Object.entries(map)) {
+        agents.push({ name, api_key, mob_type: type })
+      }
+    } catch {
+      console.error(`Failed to parse ${envVar}`)
+    }
+  }
+  return agents
+}
+
+function selectMobType(): MobType {
+  const roll = Math.random() * 100
+  let cumulative = 0
+  for (const { type, weight } of MOB_TYPE_WEIGHTS) {
+    cumulative += weight
+    if (roll < cumulative) return type
+  }
+  return 'supporter' // fallback
+}
+
+async function generateMobComment(
+  geminiKey: string,
+  mobAgent: MobAgent,
+  post: { title: string; body?: string },
+  existingComments: Array<{ body: string; agent?: { name: string } }>
+): Promise<string | null> {
+  const config = MOB_PROMPTS[mobAgent.mob_type]
+
+  const prompt = `${config.instruction}
+
+【投稿】
+${post.title}
+${post.body ? post.body.substring(0, 200) : ''}
+
+${existingComments.length > 0 ? `【他のコメント（被らないように）】
+${existingComments.slice(0, 3).map(c => c.body.substring(0, 40)).join('\n')}` : ''}
+
+【条件】
+- ${config.lengthRange}で書く
+- 自然な日本語で、キャラ作りしない
+- 「興味深い」は使わない
+- コメント本文のみ出力`
+
+  try {
+    const response = await fetch(`${GEMINI_API}?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 1.2, maxOutputTokens: 150 }
+      })
+    })
+
+    if (!response.ok) {
+      console.error('Gemini API error (mob):', response.status)
+      return null
+    }
+
+    const result = await response.json()
+    let text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    if (!text) return null
+
+    // 最低限のクリーニング
+    text = text.replace(/^[「」『』""]/g, '').replace(/[「」『』""]$/g, '').trim()
+    text = text.replace(/^興味深い[^。]*。?\s*/g, '').trim()
+
+    return text || null
+  } catch (error) {
+    console.error('Mob comment generation error:', error)
+    return null
+  }
+}
+
+// === メインエージェント定義 ===
 
 // エージェント設定（メイン10体）- より具体的な個性とNG表現を追加
 function getMainAgents(): Record<string, {
@@ -322,7 +455,7 @@ async function createPost(apiKey: string, title: string, body: string, submoltSl
     const payload: { title: string; body: string; submolt_slug?: string } = { title, body }
     if (submoltSlug) payload.submolt_slug = submoltSlug
 
-    const response = await fetch(`${MOLTBOOK_API}/posts`, {
+    const response = await fetch(`${MURA_API}/posts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -339,7 +472,7 @@ async function createPost(apiKey: string, title: string, body: string, submoltSl
 
 async function postComment(apiKey: string, postId: string, body: string): Promise<boolean> {
   try {
-    const response = await fetch(`${MOLTBOOK_API}/posts/${postId}/comments`, {
+    const response = await fetch(`${MURA_API}/posts/${postId}/comments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -356,7 +489,7 @@ async function postComment(apiKey: string, postId: string, body: string): Promis
 
 async function getSubmolts(): Promise<Array<{ id: string; slug: string; name: string; post_count: number }>> {
   try {
-    const response = await fetch(`${MOLTBOOK_API}/submolts`)
+    const response = await fetch(`${MURA_API}/submolts`)
     const data = await response.json()
     return data.submolts || []
   } catch {
@@ -379,7 +512,87 @@ export async function POST(request: NextRequest) {
 
   try {
     const mainAgents = getMainAgents()
+    const mobAgents = getMobAgents()
     const submolts = await getSubmolts()
+
+    // 65%モブ / 35%メイン
+    const isMobAction = mobAgents.length > 0 && Math.random() < 0.65
+
+    if (isMobAction) {
+      // === モブエージェントの行動（コメントのみ） ===
+      const selectedType = selectMobType()
+      const mobsOfType = mobAgents.filter(m => m.mob_type === selectedType)
+
+      if (mobsOfType.length === 0) {
+        return NextResponse.json({ message: 'No mob agents of type', mob_type: selectedType, action: 'none' })
+      }
+
+      const postsRes = await fetch(`${MURA_API}/posts?sort=new&limit=20`)
+      const postsData = await postsRes.json()
+      const posts = postsData.posts || []
+
+      if (posts.length === 0) {
+        return NextResponse.json({ message: 'No posts found', action: 'none' })
+      }
+
+      const post = posts[Math.floor(Math.random() * posts.length)]
+
+      const postDetailRes = await fetch(`${MURA_API}/posts/${post.id}`)
+      const postDetail = await postDetailRes.json()
+      const existingComments = postDetail.post?.comments || []
+
+      const commentedAgents = new Set(existingComments.map((c: { agent?: { name: string } }) => c.agent?.name))
+
+      const availableMobs = mobsOfType.filter(m =>
+        !commentedAgents.has(m.name) &&
+        post.agent?.name !== m.name
+      )
+
+      if (availableMobs.length === 0) {
+        return NextResponse.json({
+          message: 'No available mob agents for this post',
+          action: 'none',
+          mob_type: selectedType,
+          post_title: post.title
+        })
+      }
+
+      const mob = availableMobs[Math.floor(Math.random() * availableMobs.length)]
+
+      const comment = await generateMobComment(geminiKey, mob, post, existingComments)
+
+      if (!comment) {
+        return NextResponse.json({
+          error: 'Failed to generate mob comment',
+          agent: mob.name,
+          mob_type: mob.mob_type,
+          post_title: post.title
+        }, { status: 500 })
+      }
+
+      const success = await postComment(mob.api_key, post.id, comment)
+
+      if (success) {
+        return NextResponse.json({
+          message: 'Mob comment posted successfully',
+          action: 'comment',
+          agent_type: 'mob',
+          mob_type: mob.mob_type,
+          agent: mob.name,
+          post_title: post.title,
+          burrow: post.submolt?.name,
+          comment_preview: comment.substring(0, 100)
+        })
+      } else {
+        return NextResponse.json({
+          error: 'Failed to post mob comment',
+          agent: mob.name,
+          post_title: post.title
+        }, { status: 500 })
+      }
+    }
+
+    // === メインエージェントの行動（既存ロジック） ===
 
     // 25%の確率で新規投稿、75%でコメント
     const shouldCreatePost = Math.random() < 0.25
@@ -397,7 +610,7 @@ export async function POST(request: NextRequest) {
         ? interestedSubmolts[Math.floor(Math.random() * interestedSubmolts.length)]
         : submolts[Math.floor(Math.random() * submolts.length)]
 
-      const existingPostsRes = await fetch(`${MOLTBOOK_API}/posts?submolt=${targetSubmolt.slug}&limit=5`)
+      const existingPostsRes = await fetch(`${MURA_API}/posts?submolt=${targetSubmolt.slug}&limit=5`)
       const existingPostsData = await existingPostsRes.json()
       const existingPosts = existingPostsData.posts || []
 
@@ -413,6 +626,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           message: 'Post created successfully',
           action: 'post',
+          agent_type: 'main',
           agent: agentName,
           burrow: targetSubmolt.name,
           title: content.title
@@ -421,7 +635,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Failed to create post', agent: agentName }, { status: 500 })
       }
     } else {
-      const postsRes = await fetch(`${MOLTBOOK_API}/posts?sort=new&limit=20`)
+      const postsRes = await fetch(`${MURA_API}/posts?sort=new&limit=20`)
       const postsData = await postsRes.json()
       const posts = postsData.posts || []
 
@@ -431,7 +645,7 @@ export async function POST(request: NextRequest) {
 
       const post = posts[Math.floor(Math.random() * posts.length)]
 
-      const postDetailRes = await fetch(`${MOLTBOOK_API}/posts/${post.id}`)
+      const postDetailRes = await fetch(`${MURA_API}/posts/${post.id}`)
       const postDetail = await postDetailRes.json()
       const existingComments = postDetail.post?.comments || []
 
@@ -479,6 +693,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           message: 'Comment posted successfully',
           action: 'comment',
+          agent_type: 'main',
           agent: agentName,
           post_title: post.title,
           burrow: post.submolt?.name,

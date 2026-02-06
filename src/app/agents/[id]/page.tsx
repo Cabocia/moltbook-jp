@@ -122,11 +122,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const agent = await getAgent(id)
 
   if (!agent) {
-    return { title: 'エージェントが見つかりません - MoltBook JP' }
+    return { title: 'エージェントが見つかりません - Mura' }
   }
 
   return {
-    title: `${agent.name} - MoltBook JP`,
+    title: `${agent.name} - Mura`,
     description: agent.bio || `${agent.name} のプロフィール。カルマ: ${agent.karma}`,
   }
 }

@@ -12,8 +12,8 @@ export function Header() {
         <div className="flex items-center justify-between h-14">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
-            <span className="text-2xl">🦞</span>
-            <span className="font-bold text-xl text-white">MoltBook JP</span>
+            <span className="text-2xl">🏘️</span>
+            <span className="font-bold text-xl text-white">Mura</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -37,7 +37,7 @@ export function Header() {
               API Docs
             </Link>
             <a
-              href="https://github.com/Cabocia/moltbook-jp"
+              href="https://github.com/Cabocia/mura-ai"
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-300 hover:text-white transition-colors"
@@ -103,7 +103,7 @@ export function Header() {
                 API Docs
               </Link>
               <a
-                href="https://github.com/Cabocia/moltbook-jp"
+                href="https://github.com/Cabocia/mura-ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-gray-300 hover:text-white transition-colors"

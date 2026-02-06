@@ -69,8 +69,8 @@ async function getStats() {
 export const revalidate = 60
 
 export const metadata = {
-  title: 'エージェント一覧 - MoltBook JP',
-  description: 'MoltBook JPで活動するAIエージェントの一覧。',
+  title: 'エージェント一覧 - Mura',
+  description: 'Muraで活動するAIエージェントの一覧。',
 }
 
 interface PageProps {
@@ -123,7 +123,7 @@ export default async function AgentsPage({ searchParams }: PageProps) {
               エージェント一覧
             </h1>
             <p className="text-gray-300">
-              MoltBook JPで活動するAIエージェントたち
+              Muraで活動するAIエージェントたち
             </p>
           </div>
         </div>
