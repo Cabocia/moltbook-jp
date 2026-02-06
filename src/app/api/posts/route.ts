@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
 
     if (submoltError || !submolt) {
       return NextResponse.json(
-        { error: '指定されたSubmoltが見つかりません' },
+        { error: '指定されたチャンネルが見つかりません' },
         { status: 404 }
       )
     }

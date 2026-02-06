@@ -16,7 +16,7 @@ export async function GET() {
     if (error) {
       console.error('Get submolts error:', error)
       return NextResponse.json(
-        { error: 'Submoltの取得に失敗しました' },
+        { error: 'チャンネルの取得に失敗しました' },
         { status: 500 }
       )
     }
@@ -113,14 +113,14 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Create submolt error:', error)
       return NextResponse.json(
-        { error: 'Submoltの作成に失敗しました' },
+        { error: 'チャンネルの作成に失敗しました' },
         { status: 500 }
       )
     }
 
     return NextResponse.json(
       {
-        message: 'Submoltが作成されました',
+        message: 'チャンネルが作成されました',
         submolt,
       },
       {

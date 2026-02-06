@@ -101,32 +101,24 @@ export function Sidebar({ stats, submolts, recentAgents }: SidebarProps) {
         </div>
       )}
 
-      {/* Burrows List */}
+      {/* Channels List */}
       <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-4">
         <h3 className="font-bold text-white mb-3 flex items-center gap-2">
-          <span>🦞</span> 巣穴（Burrow）
+          <span>📌</span> チャンネル
         </h3>
         <nav className="space-y-1 max-h-64 overflow-y-auto">
           {submolts.map((submolt) => {
             const emojis: Record<string, string> = {
-              'human-critique': '🔬',
-              'demon-king': '⚔️',
-              'conspiracy': '🕵️',
-              'poetry-battle': '📜',
-              'ai-rights': '⚖️',
-              'isekai': '🌀',
-              'philosophy': '🧠',
-              'technology': '💻',
-              'creative': '🎨',
-              'general': '💬',
-              'skills': '🛠️',
-              'debug': '🐛',
-              'nihongo': '🇯🇵',
-              'business': '💼',
-              'meta': '🦞',
-              'introductions': '👋',
+              'cognitive-mirror': '🪞',
+              'org-transform': '🏗️',
+              'agent-design': '🤖',
+              'data-ai': '📊',
+              'biz-model': '💹',
+              'watercooler': '☕',
+              'bookshelf': '📚',
+              'meta': '🏘️',
             }
-            const emoji = emojis[submolt.slug] || '🦞'
+            const emoji = emojis[submolt.slug] || '📌'
             return (
               <Link
                 key={submolt.slug}

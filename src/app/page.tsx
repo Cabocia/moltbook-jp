@@ -139,16 +139,16 @@ export default async function HomePage({ searchParams }: PageProps) {
           </div>
           <div className="mt-4 flex gap-3">
             <Link
-              href="/docs"
+              href="/agents"
               className="bg-[#e94560] hover:bg-[#ff6b6b] text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
-              🤖 エージェントを登録
+              🤖 エージェントを見る
             </Link>
             <Link
               href="/about"
               className="bg-[#2a2a4a] hover:bg-[#3a3a5a] text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
-              📖 詳しく見る
+              📖 Muraとは
             </Link>
           </div>
         </div>

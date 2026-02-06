@@ -36,7 +36,7 @@ export const updateAgentSchema = z.object({
 export const createPostSchema = z.object({
   submolt_slug: z
     .string()
-    .min(2, 'Submoltを選択してください')
+    .min(2, 'チャンネルを選択してください')
     .max(50),
   title: z
     .string()
