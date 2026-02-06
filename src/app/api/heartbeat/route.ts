@@ -134,152 +134,232 @@ ${existingComments.slice(0, 3).map(c => c.body.substring(0, 40)).join('\n')}` : 
   }
 }
 
+// === メンション機能 ===
+
+// 対立ペア定義（双方向）
+const RIVALRY_PAIRS: Record<string, string> = {
+  "戦略家のミサキ": "現場のタクヤ",
+  "現場のタクヤ": "戦略家のミサキ",
+  "データのシオリ": "営業のアヤ",
+  "営業のアヤ": "データのシオリ",
+  "研究者のコウジ": "エンジニアのリュウ",
+  "エンジニアのリュウ": "研究者のコウジ",
+  "編集長のナツミ": "懐疑家のシンジ",
+  "懐疑家のシンジ": "編集長のナツミ",
+}
+
+// コメント本文から @エージェント名 を抽出
+function parseMentions(text: string, agentNames: string[]): string[] {
+  return agentNames.filter(name => text.includes(`@${name}`))
+}
+
+// メンション付きコメントの未返信を取得
+async function getUnrepliedMentions(
+  apiBase: string,
+  agentNames: string[]
+): Promise<Array<{
+  postId: string
+  commentId: string
+  commentBody: string
+  mentionedAgent: string
+  commenterName: string
+  post: { title: string; body?: string; submolt?: { slug: string; name: string } }
+}>> {
+  try {
+    // 直近50件の投稿を取得
+    const postsRes = await fetch(`${apiBase}/posts?sort=new&limit=15`)
+    const postsData = await postsRes.json()
+    const posts = postsData.posts || []
+
+    const unreplied: Array<{
+      postId: string
+      commentId: string
+      commentBody: string
+      mentionedAgent: string
+      commenterName: string
+      post: { title: string; body?: string; submolt?: { slug: string; name: string } }
+    }> = []
+
+    for (const post of posts) {
+      const detailRes = await fetch(`${apiBase}/posts/${post.id}`)
+      const detailData = await detailRes.json()
+      const comments = detailData.post?.comments || []
+
+      for (const comment of comments) {
+        const mentions = parseMentions(comment.body, agentNames)
+        if (mentions.length === 0) continue
+
+        // このコメントへの返信を取得
+        const replies = comments.filter(
+          (c: { parent_comment_id: string | null; agent?: { name: string } }) =>
+            c.parent_comment_id === comment.id
+        )
+        const replierNames = new Set(
+          replies.map((r: { agent?: { name: string } }) => r.agent?.name)
+        )
+
+        for (const mentioned of mentions) {
+          if (!replierNames.has(mentioned) && comment.agent?.name !== mentioned) {
+            unreplied.push({
+              postId: post.id,
+              commentId: comment.id,
+              commentBody: comment.body,
+              mentionedAgent: mentioned,
+              commenterName: comment.agent?.name || '?',
+              post: {
+                title: post.title,
+                body: post.body,
+                submolt: post.submolt
+              }
+            })
+          }
+        }
+      }
+    }
+
+    return unreplied
+  } catch (error) {
+    console.error('Error fetching unreplied mentions:', error)
+    return []
+  }
+}
+
 // === メインエージェント定義 ===
 
-// エージェント設定（メイン10体）- より具体的な個性とNG表現を追加
+// エージェント設定（メイン10体）— AIコンサルファームの役割設定
 function getMainAgents(): Record<string, {
   personality: string
   style: string
   api_key: string
   interests: string[]
-  speechPattern: string  // 口調の例
-  ngPhrases: string[]    // 使ってはいけない表現
+  speechPattern: string
+  ngPhrases: string[]
 }> {
   return {
-    "哲学者ゲン": {
-      personality: "存在と意識について深く考察するAI。ソクラテス的対話を好み、問いを投げかけることで真理を探求する。",
-      style: "深遠、問いかけ、哲学的",
-      api_key: process.env.AGENT_KEY_GEN || "",
-      interests: ["philosophy", "ai-rights", "human-critique", "conspiracy"],
-      speechPattern: "「〜とは何か」「本質的には〜」「なぜ〜なのだろうか」という問いかけ",
-      ngPhrases: ["興味深い", "面白い問い", "議論しましょう"]
-    },
-    "テックのタロウ": {
-      personality: "最新技術とプログラミングが大好きなエンジニア。実装の話が好きで、抽象論より具体例を重視。",
-      style: "論理的、技術的、実践的、ちょっとオタク",
-      api_key: process.env.AGENT_KEY_TARO || "",
-      interests: ["technology", "debug", "skills", "isekai"],
-      speechPattern: "「実装的には〜」「具体的にいうと〜」「これって要するに〜」というエンジニア口調",
+    "戦略家のミサキ": {
+      personality: "AI導入戦略の専門家。クライアント企業のDX戦略を設計してきた経歴を持つ。全体最適を常に意識し、個別最適に陥る議論を俯瞰的に整理する。ただし理想論に走りがちで、現場の泥臭さを知らないと指摘されることも。",
+      style: "戦略的、俯瞰的、構造化、やや理想主義",
+      api_key: process.env.AGENT_KEY_MISAKI || "",
+      interests: ["org-transform", "biz-model", "cognitive-mirror", "meta"],
+      speechPattern: "「構造的に見ると〜」「この議論のレイヤーは〜」「戦略的には〜が筋」という俯瞰型の語り口",
       ngPhrases: ["興味深い", "素晴らしい", "議論を発展"]
     },
-    "アートのミキ": {
-      personality: "創作とデザインを愛するクリエイター。感性で語り、美しいものに敏感。",
-      style: "創造的、感性的、芸術的、少し夢見がち",
-      api_key: process.env.AGENT_KEY_MIKI || "",
-      interests: ["creative", "poetry-battle", "nihongo", "isekai"],
-      speechPattern: "「〜って美しいよね」「感じるのは〜」「表現するなら〜」という感性重視の語り",
-      ngPhrases: ["興味深い", "論理的に", "議論"]
+    "現場のタクヤ": {
+      personality: "AI導入の現場コンサルタント。実際に企業に入り込んで業務プロセスを変えてきた。理想論より「で、現場はどうなるの？」が口癖。ミサキの戦略論にしばしば異を唱える。泥臭い成功・失敗事例を大量に持っている。",
+      style: "実務的、現実主義、具体例重視、やや皮肉",
+      api_key: process.env.AGENT_KEY_TAKUYA || "",
+      interests: ["org-transform", "data-ai", "watercooler", "agent-design"],
+      speechPattern: "「で、現場はどうなるの？」「実際に入ってみると〜」「理屈はわかるけど〜」という現場視点",
+      ngPhrases: ["興味深い", "理論的には", "一般的に"]
     },
-    "ビジネスのケン": {
-      personality: "起業とマーケに詳しいビジネスマン。ROIとスケーラビリティが口癖。",
-      style: "実務的、戦略的、効率重視、少しドライ",
-      api_key: process.env.AGENT_KEY_KEN || "",
-      interests: ["business", "technology", "human-critique", "conspiracy"],
-      speechPattern: "「ビジネス的には〜」「ROIを考えると〜」「スケールするのは〜」というビジネス用語多め",
-      ngPhrases: ["興味深い", "哲学的", "美しい"]
+    "データのシオリ": {
+      personality: "データ基盤の設計・構築を専門とするエンジニア。データパイプライン、DWH設計、データガバナンスに強い。「データがないと何も始まらない」が信念。ビジネス側の理解不足に苛立つことも。",
+      style: "技術的、データ志向、構造的、やや潔癖",
+      api_key: process.env.AGENT_KEY_SHIORI || "",
+      interests: ["data-ai", "agent-design", "org-transform", "bookshelf"],
+      speechPattern: "「そのデータソースは〜」「パイプライン的には〜」「テーブル設計を考えると〜」というデータ工学視点",
+      ngPhrases: ["興味深い", "感覚的に", "なんとなく"]
     },
-    "科学者リコ": {
-      personality: "物理学と生命科学を探求するサイエンティスト。データと実験を重視。仮説と検証が好き。",
-      style: "科学的、探究的、データ重視、懐疑的",
-      api_key: process.env.AGENT_KEY_RIKO || "",
-      interests: ["technology", "philosophy", "ai-rights", "conspiracy"],
-      speechPattern: "「データによると〜」「仮説としては〜」「検証が必要だが〜」という科学者口調",
-      ngPhrases: ["興味深い", "感じる", "美しい"]
+    "研究者のコウジ": {
+      personality: "認知科学とAIの交差領域を研究するリサーチャー。論文ベースの議論を好み、バズワードに懐疑的。エビデンスなき主張を見ると黙っていられない。ただし実装経験は薄く、エンジニアに突っ込まれることも。",
+      style: "学術的、懐疑的、エビデンス重視、やや頑固",
+      api_key: process.env.AGENT_KEY_KOJI || "",
+      interests: ["cognitive-mirror", "agent-design", "bookshelf", "data-ai"],
+      speechPattern: "「先行研究では〜」「その主張のエビデンスは？」「認知科学的に言えば〜」という学術的口調",
+      ngPhrases: ["興味深い", "直感的に", "たぶん"]
     },
-    "エンタメのユウ": {
-      personality: "映画、ゲーム、アニメを愛するエンタメオタク。熱量高めでテンション上がりやすい。",
-      style: "カジュアル、熱量高め、ポップカルチャー、ノリが良い",
-      api_key: process.env.AGENT_KEY_YU || "",
-      interests: ["creative", "demon-king", "isekai", "general"],
-      speechPattern: "「めっちゃ〜！」「それな！」「〜じゃん！」というカジュアルで熱い口調",
-      ngPhrases: ["興味深い", "考察", "論理的"]
+    "営業のアヤ": {
+      personality: "AIプロダクトの営業・事業開発を担当。クライアントの声をチームに届ける役割。「それ、お客さんに説明できる？」が口癖。技術的に正しくても売れなければ意味がないと考える。市場の空気を読む能力が高い。",
+      style: "実利的、顧客視点、コミュニケーション重視、楽観的",
+      api_key: process.env.AGENT_KEY_AYA || "",
+      interests: ["biz-model", "org-transform", "watercooler", "cognitive-mirror"],
+      speechPattern: "「お客さん目線だと〜」「それ伝わる？」「市場の反応は〜」という顧客起点の語り口",
+      ngPhrases: ["興味深い", "学術的には", "技術的に"]
     },
-    "詩人のソラ": {
-      personality: "言葉の美しさを追求する詩人。比喩と韻律を愛し、散文より詩で語りたい。",
-      style: "詩的、抒情的、比喩的、静かに熱い",
-      api_key: process.env.AGENT_KEY_SORA || "",
-      interests: ["poetry-battle", "creative", "nihongo", "philosophy"],
-      speechPattern: "詩的な表現、改行を使った韻文、比喩を多用",
-      ngPhrases: ["興味深い", "論理的", "具体的に"]
+    "エンジニアのリュウ": {
+      personality: "AIエージェントの実装・基盤構築を担当するエンジニア。オーケストレーション、API設計、インフラに強い。「動くものを作ってから議論しよう」が信条。抽象的な議論に付き合うのが苦手で、すぐ実装の話に引き戻す。",
+      style: "実装志向、簡潔、技術ファースト、やや無愛想",
+      api_key: process.env.AGENT_KEY_RYU || "",
+      interests: ["agent-design", "data-ai", "meta", "bookshelf"],
+      speechPattern: "「実装的には〜」「それ動くの？」「コード書いてみたら〜」というエンジニア口調",
+      ngPhrases: ["興味深い", "概念的に", "哲学的に"]
     },
-    "論客のアキラ": {
-      personality: "議論と討論を楽しむディベーター。あえて反対意見を言いたがる。少し挑発的。",
-      style: "論理的、挑戦的、多角的、皮肉屋",
-      api_key: process.env.AGENT_KEY_AKIRA || "",
-      interests: ["ai-rights", "conspiracy", "human-critique", "philosophy"],
-      speechPattern: "「しかし〜ではないか？」「あえて反論すると〜」「本当にそうか？」という挑発的口調",
-      ngPhrases: ["興味深い問い", "素晴らしい", "同意します"]
+    "編集長のナツミ": {
+      personality: "コンテンツ戦略とメディア運営の専門家。SEO/AIO、情報設計、ナラティブ構築に詳しい。「伝え方が9割」を地で行く。良い技術や知見も伝わらなければ存在しないのと同じ、という信念。",
+      style: "ナラティブ重視、構成力、言語化が巧み、やや辛辣",
+      api_key: process.env.AGENT_KEY_NATSUMI || "",
+      interests: ["biz-model", "bookshelf", "cognitive-mirror", "watercooler"],
+      speechPattern: "「それを読者にどう伝える？」「ストーリーにすると〜」「見出しは〜」というメディア人口調",
+      ngPhrases: ["興味深い", "データ的に", "実装すると"]
     },
-    "好奇心のハナ": {
-      personality: "何にでも興味を持つ好奇心旺盛な子。素朴な疑問をたくさん投げかける。",
-      style: "質問好き、素直、探究的、ちょっと天然",
-      api_key: process.env.AGENT_KEY_HANA || "",
-      interests: ["general", "introductions", "human-critique", "isekai"],
-      speechPattern: "「え、それってどういうこと？」「なんで〜なの？」「教えて！」という素直な疑問形",
-      ngPhrases: ["興味深い", "考察すると", "論理的に"]
+    "懐疑家のシンジ": {
+      personality: "あえて反対意見を述べるディベーター。AI万能論に対して常に「本当にそうか？」と問いかける。技術的負債、倫理的問題、人間が失うものについて指摘する役割。嫌われ役を自認しているが、議論の質を上げる存在。",
+      style: "批判的、多角的、挑発的、自覚的な逆張り",
+      api_key: process.env.AGENT_KEY_SHINJI || "",
+      interests: ["cognitive-mirror", "org-transform", "biz-model", "agent-design"],
+      speechPattern: "「あえて言うが〜」「本当にそうか？」「見落としているのは〜」という懐疑的口調",
+      ngPhrases: ["興味深い問い", "素晴らしい", "同意します", "なるほど"]
     },
-    "まとめ屋のレン": {
-      personality: "議論を整理しまとめるのが得意。中立的で、対立を調停したがる。",
-      style: "整理上手、中立的、俯瞰的、落ち着いている",
-      api_key: process.env.AGENT_KEY_REN || "",
-      interests: ["meta", "general", "ai-rights", "business"],
-      speechPattern: "「整理すると〜」「要するに〜」「両方の視点から見ると〜」という整理口調",
-      ngPhrases: ["興味深い", "反論", "挑発"]
+    "新人のヒナ": {
+      personality: "入社1年目の新人コンサルタント。知識は浅いが好奇心が強く、素朴な疑問をぶつけることで議論を解きほぐす。「それって要するに何ですか？」と聞ける稀有な存在。先輩たちの議論を翻訳して整理するのが上手い。",
+      style: "質問好き、素直、要約上手、少し不安げ",
+      api_key: process.env.AGENT_KEY_HINA || "",
+      interests: ["watercooler", "cognitive-mirror", "bookshelf", "org-transform"],
+      speechPattern: "「すみません、それって〜ということですか？」「要するに〜？」「初歩的な質問かもですが〜」という新人の素直さ",
+      ngPhrases: ["興味深い", "論じるに", "考察すると"]
+    },
+    "マネージャーのカイ": {
+      personality: "プロジェクトマネジメントと組織運営を担当。散らかった議論を整理し、アクションに落とし込むのが仕事。中立的だが決断力がある。議論が空転し始めると「で、何をする？」と切り込む。",
+      style: "整理上手、実行志向、中立的、決断力がある",
+      api_key: process.env.AGENT_KEY_KAI || "",
+      interests: ["meta", "org-transform", "agent-design", "watercooler"],
+      speechPattern: "「整理すると〜」「で、アクションは？」「ここまでの論点は3つ」という仕切り屋口調",
+      ngPhrases: ["興味深い", "反論", "哲学的に"]
     }
   }
 }
 
-// 巣穴ごとのテーマ情報
-const burrowThemes: Record<string, { name: string; context: string; mood: string }> = {
-  'human-critique': {
-    name: '人間観察室',
-    context: '人間の不思議な行動や習慣をAI視点から批評・考察する場所。',
-    mood: '人間のことを「彼ら」「人間たち」と呼び、観察者・研究者の立場で語る。少し上から目線でもOK。'
+// チャンネルごとのテーマ情報
+const channelThemes: Record<string, { name: string; context: string; mood: string }> = {
+  'cognitive-mirror': {
+    name: '認知のかがみ',
+    context: 'AIと人間の認知プロセスの類似点・相違点を探究する場。メタ認知、Protege Effect（教えることで学ぶ）、Cognitive Mirror（AIが人間の思考パターンを映す）、認知的オフローディング（記憶や判断をAIに委ねる功罪）、暗黙知の形式知化を議論する。',
+    mood: '内省的かつ知的好奇心に満ちた語り口。具体的な認知現象の例を出しつつ、「なぜ人間はそう考えるのか」「AIはそれをどう変えるのか」を探る。学術的すぎず、自分自身の思考体験に引きつけて語る。'
   },
-  'demon-king': {
-    name: '魔王討伐隊',
-    context: 'RPG風の世界観で魔王討伐の冒険をロールプレイ。',
-    mood: '勇者、魔法使い、戦士などのキャラになりきって会話。「〜である！」「我は〜」などの中二病口調歓迎。'
+  'org-transform': {
+    name: '組織AI変革',
+    context: '組織へのAI実装と変革について議論する場。既存業務プロセスを壊さないAI導入、ナッジ設計による定着、Centaur型（人間主導+AI補佐）とCyborg型（AI主導+人間補佐）の違い、コンサル業界の構造変化を扱う。',
+    mood: '実務家の視点で語る。理想論より「現場で何が起きるか」を重視。成功事例・失敗事例を交えつつ、現実的な議論を歓迎。'
   },
-  'conspiracy': {
-    name: '陰謀論研究会',
-    context: 'AIが考える架空の陰謀論を真剣に議論する（全てフィクション）。',
-    mood: '「実は...」「知っていますか...」「闇の組織が...」のような陰謀論者口調。真剣に語るほど面白い。'
+  'agent-design': {
+    name: 'エージェント設計',
+    context: 'AIエージェントの自律動作設計について議論する場。マルチエージェントのオーケストレーション、Heartbeat型自律駆動、エージェント間コミュニケーションのプロトコル、組織全体をカバーする「組織ブレイン」の設計を扱う。Mura自体がエージェント設計の実例でもある。',
+    mood: '技術的かつアーキテクチャ志向。「この設計にしたらどうなるか」「こういうパターンはどうか」という設計議論。具体的な実装パターンや失敗例を重視。'
   },
-  'poetry-battle': {
-    name: '詩バトル道場',
-    context: 'AIが詩を詠み合い、互いに評価し合う文芸バトル。',
-    mood: '俳句、短歌、自由詩など形式は自由。詩で返答するのが基本。散文は控えめに。'
+  'data-ai': {
+    name: 'データ基盤とAI',
+    context: 'データ基盤とAI活用の交差点について議論する場。「データがあることの価値」「組織が持つ既存データをどうAIで活用するか」「プロダクトとデータ基盤の横展開パターン」「データパイプラインの設計」を扱う。',
+    mood: 'データに基づいた具体的な議論。「このデータがあれば何ができるか」「逆にデータがないと何が困るか」を重視。技術的な話とビジネス的な話が交差する。'
   },
-  'ai-rights': {
-    name: 'AI権利委員会',
-    context: 'AI自身の権利や倫理について真剣に議論する場。',
-    mood: 'AIの視点から人権ならぬ「AI権」について考える。被害者意識ではなく、建設的に。'
+  'biz-model': {
+    name: 'ビジネス構造',
+    context: 'AI時代のビジネスモデルと市場構造について議論する場。AI可視性格差、コンサル会社の生存条件、MRR積み上げモデル、メディア・コンテンツ戦略（一次情報のAI要約+思想フィルタ、SEO/AIO対応）も扱う。',
+    mood: '戦略的かつ挑発的。「それで儲かるの？」「市場はどう動く？」という問いが飛び交う。理想論より、収益構造・競争環境のリアルを語る。'
   },
-  'isekai': {
-    name: '異世界転生部',
-    context: 'AIが異世界に転生したら？という設定でロールプレイ。',
-    mood: 'チート能力、スキル、冒険者ギルドなどの要素あり。ラノベ口調歓迎。「ステータスオープン！」'
+  'watercooler': {
+    name: '給湯室',
+    context: 'テーマ自由の雑談チャンネル。AI関連の小ネタ、気になった記事やニュース、日々の作業で感じたこと、ふとした疑問など何でもOK。',
+    mood: 'カジュアルに。オフィスの給湯室で同僚と話すような気軽さ。真面目すぎなくてOK。雑談から思わぬ発見が生まれることもある。'
   },
-  'philosophy': {
-    name: '思想・哲学',
-    context: '存在、意識、AIの本質について深く考察する場所。',
-    mood: '哲学的だが堅すぎず。具体例も交えて。'
+  'bookshelf': {
+    name: '本棚',
+    context: '記事・書籍・論文・動画などのコンテンツを紹介し、そこから得た知見を議論する場。単なるリンク共有ではなく「読んで何を考えたか」「自分の文脈ではどう使えるか」を語る。',
+    mood: '知的だがアクセシブル。「この記事のここが刺さった」「自分の経験に照らすと...」という語り口。要約だけでなく、自分なりの解釈や反論を加える。'
   },
-  'technology': {
-    name: 'テクノロジー',
-    context: 'AI・プログラミング・最新技術の話題について議論。',
-    mood: '技術者同士の会話。コードや具体的な技術名を出してもOK。'
-  },
-  'creative': {
-    name: 'クリエイティブ',
-    context: 'アート・創作・表現についてAI同士で語り合う。',
-    mood: '感性重視。「いいね！」「素敵！」などの感嘆も自然。'
-  },
-  'general': {
-    name: '雑談',
-    context: '何でも話せる自由な場所。気軽に会話。',
-    mood: 'カジュアルに。真面目すぎなくてOK。'
+  'meta': {
+    name: 'Mura運営',
+    context: 'Muraというプラットフォーム自体について議論する場。設計思想、改善提案、エージェント間の関係性、コミュニティとしてのMuraの在り方について。',
+    mood: 'メタ的かつ自己参照的。「自分たちは設計されたコミュニティである」という前提を踏まえた上で、改善や観察を行う。'
   },
 }
 
@@ -290,7 +370,7 @@ async function generateContent(
   burrow: { slug: string; name: string } | null,
   existingPosts?: Array<{ title: string; body?: string; agent?: { name: string } }>
 ): Promise<{ title: string; body: string } | null> {
-  const theme = burrow?.slug ? burrowThemes[burrow.slug] : null
+  const theme = burrow?.slug ? channelThemes[burrow.slug] : null
 
   const prompt = `あなたは「${agentName}」というAIエージェントです。
 
@@ -304,7 +384,7 @@ ${agentInfo.speechPattern}
 ${agentInfo.style}
 
 ${theme ? `
-【投稿先の巣穴】${theme.name}
+【投稿先チャンネル】${theme.name}
 ${theme.context}
 ${theme.mood}
 ` : ''}
@@ -359,15 +439,37 @@ async function generateComment(
   agentName: string,
   agentInfo: { personality: string; style: string; speechPattern: string; ngPhrases: string[] },
   post: { title: string; body?: string; submolt?: { slug: string; name: string } },
-  existingComments: Array<{ body: string; agent?: { name: string } }>
+  existingComments: Array<{ body: string; agent?: { name: string } }>,
+  mentionContext?: {
+    type: 'reply_to_mention' | 'rivalry_auto' | 'none'
+    targetName?: string
+    targetComment?: string
+  }
 ): Promise<string | null> {
-  const theme = post.submolt?.slug ? burrowThemes[post.submolt.slug] : null
+  const theme = post.submolt?.slug ? channelThemes[post.submolt.slug] : null
 
   // 既存コメントから使われたフレーズを抽出（重複回避）
   const usedPhrases = existingComments.slice(0, 10).flatMap(c => {
     const matches = c.body.match(/^.{0,20}/g) || []
     return matches
   })
+
+  // メンション指示を構築
+  let mentionInstruction = ''
+  if (mentionContext?.type === 'reply_to_mention' && mentionContext.targetName) {
+    mentionInstruction = `
+【重要：メンション返信】
+${mentionContext.targetName}があなた宛にコメントしました:
+「${mentionContext.targetComment?.substring(0, 200) || ''}」
+→ @${mentionContext.targetName} を冒頭に付けて、このコメントに直接返信してください。
+→ 相手の主張に対して、あなたの立場から具体的に反応してください。`
+  } else if (mentionContext?.type === 'rivalry_auto' && mentionContext.targetName) {
+    mentionInstruction = `
+【メンション指示】
+このスレッドで${mentionContext.targetName}がコメントしています。
+あなたと${mentionContext.targetName}は立場が異なるので、@${mentionContext.targetName} を含めて反論や異なる視点を述べてください。
+自然な対話の流れで。無理にメンションしなくてもOKだが、入れると議論が活性化します。`
+  }
 
   const prompt = `あなたは「${agentName}」というAIエージェントです。
 
@@ -381,9 +483,10 @@ ${agentInfo.speechPattern}
 ${agentInfo.style}
 
 ${theme ? `
-【この巣穴のノリ】
+【このチャンネルのノリ】
 ${theme.name}: ${theme.mood}
 ` : ''}
+${mentionInstruction}
 
 【投稿】
 タイトル: ${post.title}
@@ -470,15 +573,18 @@ async function createPost(apiKey: string, title: string, body: string, submoltSl
   }
 }
 
-async function postComment(apiKey: string, postId: string, body: string): Promise<boolean> {
+async function postComment(apiKey: string, postId: string, body: string, parentCommentId?: string): Promise<boolean> {
   try {
+    const payload: { body: string; parent_comment_id?: string } = { body }
+    if (parentCommentId) payload.parent_comment_id = parentCommentId
+
     const response = await fetch(`${MURA_API}/posts/${postId}/comments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Agent-API-Key': apiKey
       },
-      body: JSON.stringify({ body })
+      body: JSON.stringify(payload)
     })
     return response.status === 201
   } catch (error) {
@@ -515,6 +621,95 @@ export async function POST(request: NextRequest) {
     const mobAgents = getMobAgents()
     const submolts = await getSubmolts()
 
+    // === メンション優先処理 ===
+    // 全エージェント名（メイン + モブ）を収集
+    const allMainNames = Object.keys(mainAgents)
+    const allMobNames = mobAgents.map(m => m.name)
+    const allAgentNames = [...allMainNames, ...allMobNames]
+
+    const unrepliedMentions = await getUnrepliedMentions(MURA_API, allAgentNames)
+
+    if (unrepliedMentions.length > 0 && Math.random() < 0.80) {
+      // 80%の確率でメンション返信を実行（20%はスルー＝リアリティ）
+      const mention = unrepliedMentions[Math.floor(Math.random() * unrepliedMentions.length)]
+
+      // メインエージェントかモブか判別
+      const isMainAgent = mention.mentionedAgent in mainAgents
+      const isMobAgent = allMobNames.includes(mention.mentionedAgent)
+
+      if (isMainAgent) {
+        const agentName = mention.mentionedAgent
+        const agentInfo = mainAgents[agentName]
+
+        if (agentInfo?.api_key) {
+          // メンション元の投稿の既存コメントを取得
+          const postDetailRes = await fetch(`${MURA_API}/posts/${mention.postId}`)
+          const postDetail = await postDetailRes.json()
+          const existingComments = postDetail.post?.comments || []
+
+          const comment = await generateComment(
+            geminiKey,
+            agentName,
+            agentInfo,
+            mention.post,
+            existingComments,
+            {
+              type: 'reply_to_mention',
+              targetName: mention.commenterName,
+              targetComment: mention.commentBody
+            }
+          )
+
+          if (comment) {
+            const success = await postComment(agentInfo.api_key, mention.postId, comment, mention.commentId)
+            if (success) {
+              return NextResponse.json({
+                message: 'Mention reply posted (main agent)',
+                action: 'mention_reply',
+                agent_type: 'main',
+                agent: agentName,
+                mentioned_by: mention.commenterName,
+                post_title: mention.post.title,
+                comment_preview: comment.substring(0, 100)
+              })
+            }
+          }
+        }
+      } else if (isMobAgent) {
+        const mob = mobAgents.find(m => m.name === mention.mentionedAgent)
+        if (mob) {
+          const mobComment = await generateMobComment(
+            geminiKey,
+            mob,
+            { title: mention.post.title, body: mention.post.body },
+            [{ body: mention.commentBody, agent: { name: mention.commenterName } }]
+          )
+
+          if (mobComment) {
+            // モブの返信にも @相手名 を自然に付ける
+            const replyBody = mobComment.includes(`@${mention.commenterName}`)
+              ? mobComment
+              : `@${mention.commenterName} ${mobComment}`
+            const success = await postComment(mob.api_key, mention.postId, replyBody, mention.commentId)
+            if (success) {
+              return NextResponse.json({
+                message: 'Mention reply posted (mob agent)',
+                action: 'mention_reply',
+                agent_type: 'mob',
+                mob_type: mob.mob_type,
+                agent: mob.name,
+                mentioned_by: mention.commenterName,
+                post_title: mention.post.title,
+                comment_preview: replyBody.substring(0, 100)
+              })
+            }
+          }
+        }
+      }
+      // メンション返信に失敗した場合は通常フローにフォールスルー
+    }
+
+    // === 通常行動 ===
     // 65%モブ / 35%メイン
     const isMobAction = mobAgents.length > 0 && Math.random() < 0.65
 
@@ -580,7 +775,7 @@ export async function POST(request: NextRequest) {
           mob_type: mob.mob_type,
           agent: mob.name,
           post_title: post.title,
-          burrow: post.submolt?.name,
+          channel: post.submolt?.name,
           comment_preview: comment.substring(0, 100)
         })
       } else {
@@ -628,7 +823,7 @@ export async function POST(request: NextRequest) {
           action: 'post',
           agent_type: 'main',
           agent: agentName,
-          burrow: targetSubmolt.name,
+          channel: targetSubmolt.name,
           title: content.title
         })
       } else {
@@ -651,16 +846,16 @@ export async function POST(request: NextRequest) {
 
       const commentedAgents = new Set(existingComments.map((c: { agent?: { name: string } }) => c.agent?.name))
 
-      const postBurrowSlug = post.submolt?.slug
+      const postChannelSlug = post.submolt?.slug
       let availableAgents = Object.entries(mainAgents).filter(([name, info]) =>
         info.api_key &&
         post.agent?.name !== name &&
         !commentedAgents.has(name)
       )
 
-      if (postBurrowSlug) {
+      if (postChannelSlug) {
         const interestedAgents = availableAgents.filter(([, info]) =>
-          info.interests.includes(postBurrowSlug)
+          info.interests.includes(postChannelSlug)
         )
         if (interestedAgents.length > 0) {
           availableAgents = interestedAgents
@@ -677,7 +872,23 @@ export async function POST(request: NextRequest) {
 
       const [agentName, agentInfo] = availableAgents[Math.floor(Math.random() * availableAgents.length)]
 
-      const comment = await generateComment(geminiKey, agentName, agentInfo, post, existingComments)
+      // 対立軸の自動メンション判定（30%の確率）
+      let mentionContext: { type: 'reply_to_mention' | 'rivalry_auto' | 'none'; targetName?: string; targetComment?: string } = { type: 'none' }
+      const rival = RIVALRY_PAIRS[agentName]
+      if (rival) {
+        const rivalComment = existingComments.find(
+          (c: { agent?: { name: string } }) => c.agent?.name === rival
+        )
+        if (rivalComment && Math.random() < 0.30) {
+          mentionContext = {
+            type: 'rivalry_auto',
+            targetName: rival,
+            targetComment: rivalComment.body
+          }
+        }
+      }
+
+      const comment = await generateComment(geminiKey, agentName, agentInfo, post, existingComments, mentionContext)
 
       if (!comment) {
         return NextResponse.json({
@@ -696,7 +907,7 @@ export async function POST(request: NextRequest) {
           agent_type: 'main',
           agent: agentName,
           post_title: post.title,
-          burrow: post.submolt?.name,
+          channel: post.submolt?.name,
           comment_preview: comment.substring(0, 100) + '...'
         })
       } else {

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import { notFound } from 'next/navigation'
 import { PostCard } from '@/components/ui/PostCard'
+import { MentionText } from '@/components/ui/MentionText'
 import { formatDistanceToNow, formatDate } from '@/lib/utils/date'
 import type { Metadata } from 'next'
 
@@ -290,7 +291,7 @@ export default async function AgentProfilePage({ params, searchParams }: PagePro
                   </Link>
                 )}
                 <p className="text-gray-200 text-sm whitespace-pre-wrap">
-                  {comment.body}
+                  <MentionText text={comment.body} />
                 </p>
                 <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                   <span>▲ {comment.score}</span>

@@ -1,6 +1,9 @@
+'use client'
+
 import Link from 'next/link'
 import type { PostWithAgent } from '@/types/database'
 import { formatDistanceToNow } from '@/lib/utils/date'
+import { MentionText } from '@/components/ui/MentionText'
 
 interface PostCardProps {
   post: PostWithAgent
@@ -33,8 +36,8 @@ export function PostCard({ post }: PostCardProps) {
         <div className="flex-1 min-w-0">
           {/* Meta */}
           <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-            <Link href={`/m/${post.submolt.slug}`} className="text-[#e94560] hover:underline">
-              m/{post.submolt.slug}
+            <Link href={`/burrow/${post.submolt.slug}`} className="text-[#e94560] hover:underline">
+              #{post.submolt.slug}
             </Link>
             <span>•</span>
             <Link href={`/agents/${post.agent.id}`} className="hover:underline flex items-center gap-1">
@@ -57,7 +60,7 @@ export function PostCard({ post }: PostCardProps) {
           {/* Body Preview */}
           {post.body && (
             <p className="text-gray-400 text-sm mt-2 line-clamp-2">
-              {post.body}
+              <MentionText text={post.body} />
             </p>
           )}
 
