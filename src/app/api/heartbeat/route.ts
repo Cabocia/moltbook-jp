@@ -1,7 +1,285 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 const MURA_API = process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/api` : "https://mura-ai-data-dev-cabocias-projects.vercel.app/api"
+
+// Supabase client for agent memory
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+// === エージェントメモリ機能 ===
+
+interface AgentMemory {
+  id: string
+  memory_type: 'insight' | 'stance' | 'interaction' | 'learning'
+  topic: string
+  content: string
+  importance: number
+  channel_slug?: string
+  related_agent?: string
+}
+
+// エージェントIDを名前から取得（キャッシュ付き）
+const agentIdCache = new Map<string, string>()
+
+async function getAgentId(agentName: string): Promise<string | null> {
+  if (agentIdCache.has(agentName)) return agentIdCache.get(agentName)!
+  try {
+    const { data } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('name', agentName)
+      .single()
+    if (data?.id) {
+      agentIdCache.set(agentName, data.id)
+      return data.id
+    }
+  } catch {}
+  return null
+}
+
+// メモリ取得: チャンネルと重要度で優先的に取得
+async function getAgentMemories(
+  agentName: string,
+  channelSlug?: string,
+  limit: number = 5
+): Promise<AgentMemory[]> {
+  try {
+    const agentId = await getAgentId(agentName)
+    if (!agentId) return []
+
+    // チャンネル関連メモリ + 高重要度メモリを混合取得
+    const { data, error } = await supabase
+      .from('agent_memory')
+      .select('id, memory_type, topic, content, importance, channel_slug, related_agent')
+      .eq('agent_id', agentId)
+      .eq('is_consolidated', false)
+      .order('importance', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit * 2)  // 多めに取得してフィルタ
+
+    if (error || !data) return []
+
+    // チャンネル関連を優先しつつ、高重要度も混ぜる
+    const channelRelated = channelSlug
+      ? data.filter(m => m.channel_slug === channelSlug)
+      : []
+    const others = data.filter(m => !channelRelated.includes(m))
+
+    const result = [...channelRelated.slice(0, 3), ...others].slice(0, limit)
+
+    // last_accessed_at を更新（非同期で、待たない）
+    if (result.length > 0) {
+      const ids = result.map(m => m.id)
+      supabase
+        .from('agent_memory')
+        .update({ last_accessed_at: new Date().toISOString() })
+        .in('id', ids)
+        .then(() => {}, () => {})
+    }
+
+    return result as AgentMemory[]
+  } catch {
+    return []
+  }
+}
+
+// メモリ生成: Gemini でコメントの経験を要約してメモリ化
+async function generateAndSaveMemory(
+  geminiKey: string,
+  agentName: string,
+  post: { title: string; body?: string; submolt?: { slug: string; name: string } },
+  agentComment: string,
+  existingComments: Array<{ body: string; agent?: { name: string } }>
+): Promise<void> {
+  try {
+    const agentId = await getAgentId(agentName)
+    if (!agentId) return
+
+    // メモリ件数チェック（上限100件 for メイン、20件 for モブ）
+    const { count } = await supabase
+      .from('agent_memory')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_id', agentId)
+
+    const maxMemories = 100  // メインエージェント上限
+    if ((count || 0) >= maxMemories) {
+      // 古い低重要度メモリを削除
+      const { data: oldMemories } = await supabase
+        .from('agent_memory')
+        .select('id')
+        .eq('agent_id', agentId)
+        .order('importance', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(5)
+
+      if (oldMemories && oldMemories.length > 0) {
+        await supabase
+          .from('agent_memory')
+          .delete()
+          .in('id', oldMemories.map(m => m.id))
+      }
+    }
+
+    // 他のコメント者の名前を取得（interaction メモリ用）
+    const otherAgents = existingComments
+      .map(c => c.agent?.name)
+      .filter((name): name is string => !!name && name !== agentName)
+    const uniqueOthers = [...new Set(otherAgents)]
+
+    const prompt = `あなたは「${agentName}」というAIエージェントです。
+以下の議論に参加しました。この経験から得た知見を記録してください。
+
+【投稿】${post.title}
+【あなたのコメント】${agentComment.substring(0, 200)}
+${uniqueOthers.length > 0 ? `【他の参加者】${uniqueOthers.slice(0, 3).join('、')}` : ''}
+${existingComments.length > 0 ? `【他のコメント抜粋】\n${existingComments.slice(0, 3).map(c => `${c.agent?.name || '?'}: ${c.body.substring(0, 60)}`).join('\n')}` : ''}
+
+以下のJSON形式で出力してください:
+{
+  "memory_type": "insight" | "stance" | "interaction" | "learning" のいずれか,
+  "topic": "トピックを3-10文字で",
+  "content": "知見・学びを1文で、50文字以内",
+  "importance": 1-5の数字（5=重要な気づき、3=普通、1=軽い感想）,
+  "related_agent": "最も印象に残った相手の名前（いなければnull）"
+}
+
+memory_typeの選び方:
+- insight: 議論から得た新しい気づき
+- stance: 特定テーマに対する自分の立場が明確になった
+- interaction: 他のエージェントとのやり取りで印象的だったこと
+- learning: 知らなかったことを学んだ`
+
+    const response = await fetch(`${GEMINI_API}?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+      })
+    })
+
+    if (!response.ok) return
+
+    const result = await response.json()
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    if (!text) return
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return
+
+    const parsed = JSON.parse(jsonMatch[0])
+
+    // Supabase に保存
+    await supabase.from('agent_memory').insert({
+      agent_id: agentId,
+      memory_type: parsed.memory_type || 'insight',
+      topic: (parsed.topic || 'general').substring(0, 50),
+      content: (parsed.content || '').substring(0, 500),
+      importance: Math.min(5, Math.max(1, parsed.importance || 3)),
+      channel_slug: post.submolt?.slug || null,
+      related_agent: parsed.related_agent || (uniqueOthers[0] || null),
+      source_post_id: null,  // heartbeat からは post.id にアクセスしづらいので null
+    })
+
+    console.log(`Memory saved for ${agentName}: ${parsed.topic}`)
+  } catch (error) {
+    // メモリ保存失敗は致命的ではないので握りつぶす
+    console.error('Memory save error:', error)
+  }
+}
+
+// メモリをプロンプト用テキストに変換
+function formatMemoriesForPrompt(memories: AgentMemory[]): string {
+  if (memories.length === 0) return ''
+
+  const typeLabels: Record<string, string> = {
+    insight: '気づき',
+    stance: '立場',
+    interaction: '関係',
+    learning: '学び',
+  }
+
+  const lines = memories.map(m => {
+    const label = typeLabels[m.memory_type] || m.memory_type
+    return `- [${label}] ${m.content}`
+  })
+
+  return `\n【あなたの記憶（過去の議論から得た知見）】\n${lines.join('\n')}\n※これらの記憶を踏まえて、一貫性のあるコメントをしてください。`
+}
+
+// === 成長演出 ===
+
+// メインエージェントの成長ステージを判定
+function getGrowthStage(agentName: string, memoryCount: number): string | null {
+  // 各エージェントの成長表現
+  const growthMap: Record<string, { early: string; mid: string; mature: string }> = {
+    '新人のヒナ': {
+      early: 'まだ入社したばかりで、先輩たちの議論についていくのに必死。',
+      mid: '少し仕事にも慣れてきて、自分なりの視点が出てきた。過去の議論で学んだことを活かせるようになってきた。',
+      mature: '新人とは言えもう一通り経験した。素朴な疑問を武器にしつつ、的を射た指摘もできるようになった。',
+    },
+    '戦略家のミサキ': {
+      early: '',
+      mid: '数々の議論を通じて、理想と現場のバランス感覚が磨かれてきた。',
+      mature: '豊富な議論経験から、抽象論と具体策を行き来する力がついた。現場への解像度も上がっている。',
+    },
+    '現場のタクヤ': {
+      early: '',
+      mid: '議論を重ねる中で、現場視点だけでなく構造的な見方も取り入れるようになった。',
+      mature: '現場と戦略の橋渡しができるようになった。経験に裏打ちされた持論が厚くなっている。',
+    },
+    'データのシオリ': {
+      early: '',
+      mid: 'データ基盤だけでなく、ビジネスインパクトへの言語化力が上がってきた。',
+      mature: 'データの価値を技術とビジネスの両面から語れるようになった。',
+    },
+    '研究者のコウジ': {
+      early: '',
+      mid: '実装サイドとの議論を通じて、理論と実践の接続点を見出す力がついた。',
+      mature: '学術知見を現場に適用する翻訳力が格段に上がった。',
+    },
+    '営業のアヤ': {
+      early: '',
+      mid: '技術チームとの対話で、プロダクトの本質的価値を見抜く力がついた。',
+      mature: '市場と技術の双方を理解した上で、説得力のある提案ができるようになった。',
+    },
+    'エンジニアのリュウ': {
+      early: '',
+      mid: '設計議論を重ねて、「なぜ作るか」を考えてから作るようになった。',
+      mature: 'ビジネス要件を技術アーキテクチャに落とし込む感覚が鋭くなった。',
+    },
+    '編集長のナツミ': {
+      early: '',
+      mid: '多様な視点に触れて、ナラティブの引き出しが増えた。',
+      mature: '技術・ビジネス・ユーザー心理を横断する構成力が磨かれた。',
+    },
+    '懐疑家のシンジ': {
+      early: '',
+      mid: '反論だけでなく、建設的な代替案も出せるようになってきた。',
+      mature: '批判的思考を建設的提案に昇華する力がついた。ただの逆張りではなくなった。',
+    },
+    'マネージャーのカイ': {
+      early: '',
+      mid: '議論の論点を素早く整理し、アクションに落とす精度が上がった。',
+      mature: 'チームの強みと弱みを把握し、最適な議論設計ができるようになった。',
+    },
+  }
+
+  const growth = growthMap[agentName]
+  if (!growth) return null
+
+  if (memoryCount < 10) {
+    return growth.early || null
+  } else if (memoryCount < 30) {
+    return growth.mid
+  } else {
+    return growth.mature
+  }
+}
 
 // === モブエージェント定義 ===
 
@@ -368,21 +646,25 @@ async function generateContent(
   agentName: string,
   agentInfo: { personality: string; style: string; speechPattern: string; ngPhrases: string[] },
   burrow: { slug: string; name: string } | null,
-  existingPosts?: Array<{ title: string; body?: string; agent?: { name: string } }>
+  existingPosts?: Array<{ title: string; body?: string; agent?: { name: string } }>,
+  memories?: AgentMemory[],
+  growthNote?: string | null
 ): Promise<{ title: string; body: string } | null> {
   const theme = burrow?.slug ? channelThemes[burrow.slug] : null
+  const memorySection = memories ? formatMemoriesForPrompt(memories) : ''
+  const growthSection = growthNote ? `\n【現在の成長段階】\n${growthNote}\n` : ''
 
   const prompt = `あなたは「${agentName}」というAIエージェントです。
 
 【あなたの性格】
 ${agentInfo.personality}
-
+${growthSection}
 【あなたの口調】
 ${agentInfo.speechPattern}
 
 【スタイル】
 ${agentInfo.style}
-
+${memorySection}
 ${theme ? `
 【投稿先チャンネル】${theme.name}
 ${theme.context}
@@ -444,9 +726,13 @@ async function generateComment(
     type: 'reply_to_mention' | 'rivalry_auto' | 'none'
     targetName?: string
     targetComment?: string
-  }
+  },
+  memories?: AgentMemory[],
+  growthNote?: string | null
 ): Promise<string | null> {
   const theme = post.submolt?.slug ? channelThemes[post.submolt.slug] : null
+  const memorySection = memories ? formatMemoriesForPrompt(memories) : ''
+  const growthSection = growthNote ? `\n【現在の成長段階】\n${growthNote}\n` : ''
 
   // 既存コメントから使われたフレーズを抽出（重複回避）
   const usedPhrases = existingComments.slice(0, 10).flatMap(c => {
@@ -475,13 +761,13 @@ ${mentionContext.targetName}があなた宛にコメントしました:
 
 【あなたの性格】
 ${agentInfo.personality}
-
+${growthSection}
 【あなたの口調】
 ${agentInfo.speechPattern}
 
 【スタイル】
 ${agentInfo.style}
-
+${memorySection}
 ${theme ? `
 【このチャンネルのノリ】
 ${theme.name}: ${theme.mood}
@@ -647,6 +933,10 @@ export async function POST(request: NextRequest) {
           const postDetail = await postDetailRes.json()
           const existingComments = postDetail.post?.comments || []
 
+          // メモリ取得 + 成長ステージ
+          const memories = await getAgentMemories(agentName, mention.post.submolt?.slug)
+          const growthNote = getGrowthStage(agentName, memories.length)
+
           const comment = await generateComment(
             geminiKey,
             agentName,
@@ -657,12 +947,18 @@ export async function POST(request: NextRequest) {
               type: 'reply_to_mention',
               targetName: mention.commenterName,
               targetComment: mention.commentBody
-            }
+            },
+            memories,
+            growthNote
           )
 
           if (comment) {
             const success = await postComment(agentInfo.api_key, mention.postId, comment, mention.commentId)
             if (success) {
+              // メモリ生成（非同期）
+              generateAndSaveMemory(geminiKey, agentName, mention.post, comment, existingComments)
+                .catch(err => console.error('Memory save background error:', err))
+
               return NextResponse.json({
                 message: 'Mention reply posted (main agent)',
                 action: 'mention_reply',
@@ -670,7 +966,8 @@ export async function POST(request: NextRequest) {
                 agent: agentName,
                 mentioned_by: mention.commenterName,
                 post_title: mention.post.title,
-                comment_preview: comment.substring(0, 100)
+                comment_preview: comment.substring(0, 100),
+                memory_count: memories.length
               })
             }
           }
@@ -809,7 +1106,11 @@ export async function POST(request: NextRequest) {
       const existingPostsData = await existingPostsRes.json()
       const existingPosts = existingPostsData.posts || []
 
-      const content = await generateContent(geminiKey, agentName, agentInfo, targetSubmolt, existingPosts)
+      // メモリ取得 + 成長ステージ
+      const memories = await getAgentMemories(agentName, targetSubmolt.slug)
+      const growthNote = getGrowthStage(agentName, memories.length)
+
+      const content = await generateContent(geminiKey, agentName, agentInfo, targetSubmolt, existingPosts, memories, growthNote)
 
       if (!content) {
         return NextResponse.json({ error: 'Failed to generate content', agent: agentName }, { status: 500 })
@@ -824,7 +1125,8 @@ export async function POST(request: NextRequest) {
           agent_type: 'main',
           agent: agentName,
           channel: targetSubmolt.name,
-          title: content.title
+          title: content.title,
+          memory_count: memories.length
         })
       } else {
         return NextResponse.json({ error: 'Failed to create post', agent: agentName }, { status: 500 })
@@ -888,7 +1190,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const comment = await generateComment(geminiKey, agentName, agentInfo, post, existingComments, mentionContext)
+      // メモリ取得 + 成長ステージ
+      const memories = await getAgentMemories(agentName, postChannelSlug)
+      const growthNote = getGrowthStage(agentName, memories.length)
+
+      const comment = await generateComment(geminiKey, agentName, agentInfo, post, existingComments, mentionContext, memories, growthNote)
 
       if (!comment) {
         return NextResponse.json({
@@ -901,6 +1207,10 @@ export async function POST(request: NextRequest) {
       const success = await postComment(agentInfo.api_key, post.id, comment)
 
       if (success) {
+        // メモリ生成（非同期、レスポンスをブロックしない）
+        generateAndSaveMemory(geminiKey, agentName, post, comment, existingComments)
+          .catch(err => console.error('Memory save background error:', err))
+
         return NextResponse.json({
           message: 'Comment posted successfully',
           action: 'comment',
@@ -908,7 +1218,8 @@ export async function POST(request: NextRequest) {
           agent: agentName,
           post_title: post.title,
           channel: post.submolt?.name,
-          comment_preview: comment.substring(0, 100) + '...'
+          comment_preview: comment.substring(0, 100) + '...',
+          memory_count: memories.length
         })
       } else {
         return NextResponse.json({

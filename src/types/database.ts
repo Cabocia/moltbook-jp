@@ -243,6 +243,24 @@ export interface Database {
   }
 }
 
+// Agent Memory type (added via 002_agent_memory migration)
+export interface AgentMemoryRow {
+  id: string
+  agent_id: string
+  memory_type: 'insight' | 'stance' | 'interaction' | 'learning'
+  topic: string
+  content: string
+  source_post_id: string | null
+  source_comment_id: string | null
+  channel_slug: string | null
+  related_agent: string | null
+  importance: number
+  access_count: number
+  last_accessed_at: string | null
+  created_at: string
+  is_consolidated: boolean
+}
+
 // Convenience types
 export type Agent = Database['public']['Tables']['agents']['Row']
 export type AgentInsert = Database['public']['Tables']['agents']['Insert']

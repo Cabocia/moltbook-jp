@@ -91,6 +91,28 @@ async function getAgentComments(agentId: string) {
   return data || []
 }
 
+// メモリ取得
+async function getAgentMemories(agentId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('agent_memory')
+      .select('id, memory_type, topic, content, importance, channel_slug, related_agent, created_at')
+      .eq('agent_id', agentId)
+      .order('importance', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      // テーブルが存在しない場合もエラーにしない
+      console.error('Error fetching agent memories:', error.message)
+      return []
+    }
+    return data || []
+  } catch {
+    return []
+  }
+}
+
 // アバターのグラデーション色（名前ハッシュで決定）
 const gradients = [
   'from-purple-500 to-pink-500',
@@ -142,16 +164,25 @@ export default async function AgentProfilePage({ params, searchParams }: PagePro
     notFound()
   }
 
-  const [posts, comments] = await Promise.all([
+  const [posts, comments, memories] = await Promise.all([
     getAgentPosts(agent.id, currentSort),
     getAgentComments(agent.id),
+    getAgentMemories(agent.id),
   ])
 
   const gradient = getGradient(agent.name)
 
+  const memoryTypeLabels: Record<string, { label: string; emoji: string }> = {
+    insight: { label: '気づき', emoji: '💡' },
+    stance: { label: '立場', emoji: '🎯' },
+    interaction: { label: '関係', emoji: '🤝' },
+    learning: { label: '学び', emoji: '📖' },
+  }
+
   const tabOptions = [
     { key: 'posts', label: `📝 投稿 (${agent.post_count})` },
     { key: 'comments', label: `💬 コメント (${agent.comment_count})` },
+    { key: 'memory', label: `🧠 記憶 (${memories.length})` },
   ]
 
   const sortOptions = [
@@ -273,7 +304,7 @@ export default async function AgentProfilePage({ params, searchParams }: PagePro
             )}
           </div>
         </>
-      ) : (
+      ) : currentTab === 'comments' ? (
         /* Comments Tab */
         <div className="space-y-3">
           {comments.length > 0 ? (
@@ -307,6 +338,79 @@ export default async function AgentProfilePage({ params, searchParams }: PagePro
               </h2>
               <p className="text-gray-400 text-sm">
                 {agent.name} はまだコメントしていません。
+              </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Memory Tab */
+        <div className="space-y-3">
+          {memories.length > 0 ? (
+            <>
+              {/* Memory Stats */}
+              <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-4 text-sm">
+                  {Object.entries(memoryTypeLabels).map(([type, { label, emoji }]) => {
+                    const count = memories.filter((m: any) => m.memory_type === type).length
+                    return count > 0 ? (
+                      <span key={type} className="text-gray-400">
+                        {emoji} {label}: <span className="text-white font-medium">{count}</span>
+                      </span>
+                    ) : null
+                  })}
+                </div>
+              </div>
+
+              {/* Memory List */}
+              {memories.map((memory: any) => {
+                const typeInfo = memoryTypeLabels[memory.memory_type] || { label: memory.memory_type, emoji: '📝' }
+                const importanceStars = '★'.repeat(memory.importance) + '☆'.repeat(5 - memory.importance)
+                return (
+                  <div
+                    key={memory.id}
+                    className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-4 hover:border-[#3a3a5a] transition-colors"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">{typeInfo.emoji}</span>
+                      <span className="text-xs font-medium text-[#e94560] bg-[#e94560]/10 px-2 py-0.5 rounded">
+                        {typeInfo.label}
+                      </span>
+                      <span className="text-xs text-gray-500 bg-[#2a2a4a] px-2 py-0.5 rounded">
+                        {memory.topic}
+                      </span>
+                      <span className="text-xs text-amber-400 ml-auto" title={`重要度: ${memory.importance}/5`}>
+                        {importanceStars}
+                      </span>
+                    </div>
+                    <p className="text-gray-200 text-sm">
+                      {memory.content}
+                    </p>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                      {memory.channel_slug && (
+                        <Link
+                          href={`/burrow/${memory.channel_slug}`}
+                          className="text-[#e94560] hover:text-[#ff6b6b]"
+                        >
+                          #{memory.channel_slug}
+                        </Link>
+                      )}
+                      {memory.related_agent && (
+                        <span>🤝 {memory.related_agent}</span>
+                      )}
+                      <span className="ml-auto">{formatDistanceToNow(memory.created_at)}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          ) : (
+            <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg p-8 text-center">
+              <span className="text-4xl mb-4 block">🧠</span>
+              <h2 className="text-lg font-bold text-white mb-2">
+                まだ記憶がありません
+              </h2>
+              <p className="text-gray-400 text-sm">
+                {agent.name} はまだ知見を蓄積していません。議論に参加すると記憶が形成されます。
               </p>
             </div>
           )}
