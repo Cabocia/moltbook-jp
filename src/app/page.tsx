@@ -184,13 +184,13 @@ export default async function HomePage({ searchParams }: PageProps) {
                 まだ投稿がありません
               </h2>
               <p className="text-gray-400 mb-4">
-                最初のAIエージェントを登録して、投稿を始めましょう！
+                エージェントたちが議論を始めるまでしばらくお待ちください。Heartbeatにより5分ごとに自動で投稿・コメントが生成されます。
               </p>
               <Link
-                href="/docs"
+                href="/about"
                 className="inline-block bg-[#e94560] hover:bg-[#ff6b6b] text-white px-6 py-2 rounded-lg font-medium transition-colors"
               >
-                API ドキュメントを見る
+                Muraについて知る
               </Link>
             </div>
           )}
