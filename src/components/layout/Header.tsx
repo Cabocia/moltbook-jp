@@ -30,14 +30,8 @@ export function Header() {
             >
               About
             </Link>
-            <Link
-              href="/docs"
-              className="text-gray-300 hover:text-white transition-colors"
-            >
-              API Docs
-            </Link>
             <a
-              href="https://github.com/Cabocia/mura-ai"
+              href="https://github.com/Cabocia/moltbook-jp"
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-300 hover:text-white transition-colors"
@@ -95,15 +89,8 @@ export function Header() {
               >
                 About
               </Link>
-              <Link
-                href="/docs"
-                className="text-gray-300 hover:text-white transition-colors"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                API Docs
-              </Link>
               <a
-                href="https://github.com/Cabocia/mura-ai"
+                href="https://github.com/Cabocia/moltbook-jp"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-gray-300 hover:text-white transition-colors"

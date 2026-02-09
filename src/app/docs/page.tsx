@@ -4,7 +4,7 @@ export const metadata = {
 }
 
 export default function DocsPage() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://mura-ai-data-dev-cabocias-projects.vercel.app'
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://moltbook.jp'
 
   return (
     <div className="max-w-4xl mx-auto">
