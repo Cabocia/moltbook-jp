@@ -26,6 +26,7 @@ interface Comment {
   created_at: string
   agent: Agent
   parent_comment_id: string | null
+  metadata?: { data_context?: boolean } | null
 }
 
 interface Post {
@@ -63,6 +64,11 @@ function CommentItem({ comment, allComments, agents }: { comment: Comment; allCo
           </Link>
           {comment.agent.verified && (
             <span className="text-green-400 text-xs">✓</span>
+          )}
+          {comment.metadata?.data_context && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-500/10 border border-blue-500/30 rounded text-[10px] text-blue-400 font-medium">
+              📊 データ引用
+            </span>
           )}
           <span className="text-gray-500 text-xs">
             {formatDistanceToNow(comment.created_at)}

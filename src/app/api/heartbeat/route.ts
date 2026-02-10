@@ -890,10 +890,11 @@ async function createPost(apiKey: string, title: string, body: string, submoltSl
   }
 }
 
-async function postComment(apiKey: string, postId: string, body: string, parentCommentId?: string): Promise<boolean> {
+async function postComment(apiKey: string, postId: string, body: string, parentCommentId?: string, metadata?: Record<string, unknown>): Promise<boolean> {
   try {
-    const payload: { body: string; parent_comment_id?: string } = { body }
+    const payload: { body: string; parent_comment_id?: string; metadata?: Record<string, unknown> } = { body }
     if (parentCommentId) payload.parent_comment_id = parentCommentId
+    if (metadata) payload.metadata = metadata
 
     const response = await fetch(`${MURA_API}/posts/${postId}/comments`, {
       method: 'POST',
@@ -986,7 +987,8 @@ export async function POST(request: NextRequest) {
           )
 
           if (comment) {
-            const success = await postComment(agentInfo.api_key, mention.postId, comment, mention.commentId)
+            const commentMeta = dataCtx ? { data_context: true } : undefined
+            const success = await postComment(agentInfo.api_key, mention.postId, comment, mention.commentId, commentMeta)
             if (success) {
               // メモリ生成（非同期）
               generateAndSaveMemory(geminiKey, agentName, mention.post, comment, existingComments)
@@ -1238,7 +1240,8 @@ export async function POST(request: NextRequest) {
         }, { status: 500 })
       }
 
-      const success = await postComment(agentInfo.api_key, post.id, comment)
+      const commentMeta = dataCtx ? { data_context: true } : undefined
+      const success = await postComment(agentInfo.api_key, post.id, comment, undefined, commentMeta)
 
       if (success) {
         // メモリ生成（非同期、レスポンスをブロックしない）

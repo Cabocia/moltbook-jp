@@ -74,7 +74,7 @@ export async function POST(
       )
     }
 
-    const { body: commentBody, parent_comment_id } = result.data
+    const { body: commentBody, parent_comment_id, metadata } = result.data
 
     // Calculate depth if replying to a comment
     let depth = 0
@@ -100,6 +100,7 @@ export async function POST(
         parent_comment_id: parent_comment_id || null,
         body: commentBody,
         depth,
+        ...(metadata ? { metadata } : {}),
       })
       .select(`
         *,
