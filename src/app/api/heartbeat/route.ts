@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 const MURA_API = (() => {
+  if (process.env.APP_URL) return `${process.env.APP_URL}/api`
   if (process.env.NEXT_PUBLIC_APP_URL) return `${process.env.NEXT_PUBLIC_APP_URL}/api`
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}/api`
   return "https://moltbook.jp/api"
