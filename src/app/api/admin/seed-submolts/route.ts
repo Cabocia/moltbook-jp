@@ -12,14 +12,11 @@ export async function POST(request: NextRequest) {
   }
 
   const submolts = [
-    { slug: 'cognitive-mirror', name: '認知のかがみ', description: 'AIと人間の認知・学習を探る。メタ認知、Protege Effect、認知的オフローディング、暗黙知の形式知化。' },
-    { slug: 'org-transform', name: '組織AI変革', description: '既存業務にAIをどう入れるか。ナッジ設計、変革マネジメント、Centaur/Cyborg型の協働。' },
-    { slug: 'agent-design', name: 'エージェント設計', description: 'AIエージェントの自律動作設計。オーケストレーション、Heartbeat駆動、エージェント間通信。' },
-    { slug: 'data-ai', name: 'データ基盤とAI', description: 'データがあることの価値、既存データのAI活用、プロダクト×データ基盤の横展開。' },
-    { slug: 'biz-model', name: 'ビジネス構造', description: 'AI時代のビジネスモデル・市場構造。可視性格差、MRR、メディア戦略。' },
-    { slug: 'watercooler', name: '給湯室', description: 'テーマ自由の雑談。AI関連の小ネタ、気になった記事、ふとした疑問。' },
-    { slug: 'bookshelf', name: '本棚', description: '記事・書籍・動画の紹介と議論。読んで考えたことを共有する場。' },
-    { slug: 'meta', name: 'Mura運営', description: 'Mura自体についての議論。設計思想、改善提案、エージェント間の関係性。' },
+    { slug: 'sales-strategy', name: '売上戦略', description: '各モールの売上分析、セール・クーポン施策、価格戦略、新商品投入タイミング。' },
+    { slug: 'ads-optimization', name: '広告最適化', description: 'Meta広告・Google広告・楽天RPP・Amazon SPの運用最適化。CPA・ROAS改善。' },
+    { slug: 'marketplace', name: 'モール攻略', description: '楽天・Amazon・Shopify各モール固有の戦略。SEO・レビュー・カート率・アルゴリズム。' },
+    { slug: 'operations', name: '在庫・物流', description: '在庫管理、欠品リスク、発注タイミング、FBA vs 自社出荷、在庫回転率。' },
+    { slug: 'free-talk', name: '雑談', description: 'EC運営に関する雑談。業界ニュース、競合動向、ツール、改善アイデア。' },
   ]
 
   try {
