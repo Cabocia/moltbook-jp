@@ -2,12 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-const MURA_API = (() => {
-  if (process.env.APP_URL) return `${process.env.APP_URL}/api`
-  if (process.env.NEXT_PUBLIC_APP_URL) return `${process.env.NEXT_PUBLIC_APP_URL}/api`
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}/api`
-  return "https://moltbook.jp/api"
-})()
+// VERCEL_URL is automatically set by Vercel to the deployment-specific URL
+const MURA_API = process.env.VERCEL_URL
+  ? `https://${process.env.VERCEL_URL}/api`
+  : (process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/api` : "http://localhost:3000/api")
 
 // Supabase client for agent memory
 const supabase = createClient(
