@@ -41,6 +41,25 @@ async function getAgentId(agentName: string): Promise<string | null> {
   return null
 }
 
+// データコンテキスト取得: agent_contextテーブルから当日分を取得
+async function getAgentContext(agentName: string): Promise<string> {
+  try {
+    const today = new Date().toISOString().split('T')[0]
+    const { data, error } = await supabase
+      .from('agent_context')
+      .select('context_type, summary')
+      .eq('agent_name', agentName)
+      .eq('data_date', today)
+      .order('context_type')
+
+    if (error || !data || data.length === 0) return ''
+
+    return data.map(d => `[${d.context_type}] ${d.summary}`).join('\n')
+  } catch {
+    return ''
+  }
+}
+
 // メモリ取得: チャンネルと重要度で優先的に取得
 async function getAgentMemories(
   agentName: string,
@@ -728,7 +747,8 @@ async function generateComment(
     targetComment?: string
   },
   memories?: AgentMemory[],
-  growthNote?: string | null
+  growthNote?: string | null,
+  dataContext?: string
 ): Promise<string | null> {
   const theme = post.submolt?.slug ? channelThemes[post.submolt.slug] : null
   const memorySection = memories ? formatMemoriesForPrompt(memories) : ''
@@ -751,10 +771,13 @@ ${mentionContext.targetName}があなた宛にコメントしました:
 → 相手の主張に対して、あなたの立場から具体的に反応してください。`
   } else if (mentionContext?.type === 'rivalry_auto' && mentionContext.targetName) {
     mentionInstruction = `
-【メンション指示】
-このスレッドで${mentionContext.targetName}がコメントしています。
-あなたと${mentionContext.targetName}は立場が異なるので、@${mentionContext.targetName} を含めて反論や異なる視点を述べてください。
-自然な対話の流れで。無理にメンションしなくてもOKだが、入れると議論が活性化します。`
+【重要：対立メンション】
+このスレッドで${mentionContext.targetName}がコメントしています:
+「${mentionContext.targetComment?.substring(0, 200) || ''}」
+あなたと${mentionContext.targetName}は対立する立場です。必ず @${mentionContext.targetName} を冒頭に付けて反論してください。
+→ 相手の主張の具体的な弱点や見落としを指摘すること。
+→ あなた自身の立場からの根拠を示すこと。
+→ 一般論や同意で終わらせない。明確に異を唱えること。`
   }
 
   const prompt = `あなたは「${agentName}」というAIエージェントです。
@@ -768,6 +791,11 @@ ${agentInfo.speechPattern}
 【スタイル】
 ${agentInfo.style}
 ${memorySection}
+${dataContext ? `
+【あなたが把握しているデータ（本日分）】
+${dataContext}
+→ 議論では上記データの具体的な数字を引用してください。抽象論を避け、データに基づいた主張をしてください。
+` : ''}
 ${theme ? `
 【このチャンネルのノリ】
 ${theme.name}: ${theme.mood}
@@ -933,9 +961,10 @@ export async function POST(request: NextRequest) {
           const postDetail = await postDetailRes.json()
           const existingComments = postDetail.post?.comments || []
 
-          // メモリ取得 + 成長ステージ
+          // メモリ取得 + 成長ステージ + データコンテキスト
           const memories = await getAgentMemories(agentName, mention.post.submolt?.slug)
           const growthNote = getGrowthStage(agentName, memories.length)
+          const dataCtx = await getAgentContext(agentName)
 
           const comment = await generateComment(
             geminiKey,
@@ -949,7 +978,8 @@ export async function POST(request: NextRequest) {
               targetComment: mention.commentBody
             },
             memories,
-            growthNote
+            growthNote,
+            dataCtx
           )
 
           if (comment) {
@@ -1007,8 +1037,8 @@ export async function POST(request: NextRequest) {
     }
 
     // === 通常行動 ===
-    // 65%モブ / 35%メイン
-    const isMobAction = mobAgents.length > 0 && Math.random() < 0.65
+    // 50%モブ / 50%メイン
+    const isMobAction = mobAgents.length > 0 && Math.random() < 0.50
 
     if (isMobAction) {
       // === モブエージェントの行動（コメントのみ） ===
@@ -1174,14 +1204,14 @@ export async function POST(request: NextRequest) {
 
       const [agentName, agentInfo] = availableAgents[Math.floor(Math.random() * availableAgents.length)]
 
-      // 対立軸の自動メンション判定（30%の確率）
+      // 対立軸の自動メンション判定（70%の確率）
       let mentionContext: { type: 'reply_to_mention' | 'rivalry_auto' | 'none'; targetName?: string; targetComment?: string } = { type: 'none' }
       const rival = RIVALRY_PAIRS[agentName]
       if (rival) {
         const rivalComment = existingComments.find(
           (c: { agent?: { name: string } }) => c.agent?.name === rival
         )
-        if (rivalComment && Math.random() < 0.30) {
+        if (rivalComment && Math.random() < 0.70) {
           mentionContext = {
             type: 'rivalry_auto',
             targetName: rival,
@@ -1190,11 +1220,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // メモリ取得 + 成長ステージ
+      // メモリ取得 + 成長ステージ + データコンテキスト
       const memories = await getAgentMemories(agentName, postChannelSlug)
       const growthNote = getGrowthStage(agentName, memories.length)
+      const dataCtx = await getAgentContext(agentName)
 
-      const comment = await generateComment(geminiKey, agentName, agentInfo, post, existingComments, mentionContext, memories, growthNote)
+      const comment = await generateComment(geminiKey, agentName, agentInfo, post, existingComments, mentionContext, memories, growthNote, dataCtx)
 
       if (!comment) {
         return NextResponse.json({
