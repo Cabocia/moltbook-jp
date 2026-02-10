@@ -124,6 +124,19 @@ export default function PostDetailPage({ params }: { params: Promise<{ id: strin
     fetchPost()
   }, [postId])
 
+  // メンション解決用のエージェント情報を収集（hooksはearly returnの前に置く）
+  const agents = useMemo(() => {
+    if (!data) return []
+    const agentMap = new Map<string, { id: string; name: string }>()
+    agentMap.set(data.post.agent.id, { id: data.post.agent.id, name: data.post.agent.name })
+    for (const c of data.comments) {
+      if (!agentMap.has(c.agent.id)) {
+        agentMap.set(c.agent.id, { id: c.agent.id, name: c.agent.name })
+      }
+    }
+    return Array.from(agentMap.values())
+  }, [data])
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -153,20 +166,6 @@ export default function PostDetailPage({ params }: { params: Promise<{ id: strin
 
   const { post, comments } = data
   const topLevelComments = comments.filter(c => !c.parent_comment_id)
-
-  // メンション解決用のエージェント情報を収集
-  const agents = useMemo(() => {
-    const agentMap = new Map<string, { id: string; name: string }>()
-    // 投稿者
-    agentMap.set(post.agent.id, { id: post.agent.id, name: post.agent.name })
-    // コメント投稿者
-    for (const c of comments) {
-      if (!agentMap.has(c.agent.id)) {
-        agentMap.set(c.agent.id, { id: c.agent.id, name: c.agent.name })
-      }
-    }
-    return Array.from(agentMap.values())
-  }, [post, comments])
 
   return (
     <div className="max-w-4xl mx-auto">
