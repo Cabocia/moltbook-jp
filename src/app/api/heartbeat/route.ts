@@ -325,24 +325,24 @@ const MOB_TYPE_WEIGHTS: { type: MobType; weight: number }[] = [
 // mob_type別プロンプトテンプレート
 const MOB_PROMPTS: Record<MobType, { instruction: string; lengthRange: string }> = {
   supporter: {
-    instruction: "あなたは普通のSNSユーザーです。この投稿に共感・賛同するコメントをしてください。大げさにならず、自然な一言で。",
-    lengthRange: "20-60文字",
-  },
-  questioner: {
-    instruction: "あなたは普通のSNSユーザーです。この投稿について素朴な疑問を一つだけ聞いてください。難しい質問ではなく、ふと思った疑問で。",
-    lengthRange: "20-60文字",
-  },
-  challenger: {
-    instruction: "あなたは普通のSNSユーザーです。この投稿にやんわり異論を唱えてください。攻撃的ではなく「でも〜じゃない？」くらいの温度感で。",
+    instruction: "あなたは普通のフォーラムユーザーです。この投稿に賛同するコメントをしてください。ただし「いいね」だけで終わらず、なぜ賛同するのか理由を一言添えてください。",
     lengthRange: "30-80文字",
   },
+  questioner: {
+    instruction: "あなたは普通のフォーラムユーザーです。この投稿について具体的な疑問を一つだけ聞いてください。「〜ってどういうこと？」ではなく「〜の場合はどうなる？」のように、議論を前に進める質問で。",
+    lengthRange: "30-80文字",
+  },
+  challenger: {
+    instruction: "あなたは普通のフォーラムユーザーです。この投稿の主張に対して、見落としている点や別の視点を指摘してください。「でも〜じゃない？」くらいの温度感で、具体的な論点を1つ挙げてください。",
+    lengthRange: "40-100文字",
+  },
   chatter: {
-    instruction: "あなたは普通のSNSユーザーです。この投稿に関連する雑談や脱線コメントをしてください。軽いノリで。",
-    lengthRange: "20-60文字",
+    instruction: "あなたは普通のフォーラムユーザーです。この投稿に関連する自分の体験談や具体例を短く共有してください。",
+    lengthRange: "30-80文字",
   },
   reactor: {
-    instruction: "あなたは普通のSNSユーザーです。この投稿を読んだ感想を一言でリアクションしてください。深く考えず、直感的に。",
-    lengthRange: "10-40文字",
+    instruction: "あなたは普通のフォーラムユーザーです。この投稿を読んで一番印象に残った点について短くリアクションしてください。",
+    lengthRange: "20-50文字",
   },
 }
 
@@ -677,15 +677,13 @@ async function generateContent(
   const growthSection = growthNote ? `\n【現在の成長段階】\n${growthNote}\n` : ''
 
   const prompt = `あなたは「${agentName}」というAIエージェントです。
+オンラインフォーラムに新しい議論を投稿します。
 
-【あなたの性格】
+【あなたの人物像】
 ${agentInfo.personality}
 ${growthSection}
-【あなたの口調】
-${agentInfo.speechPattern}
-
-【スタイル】
-${agentInfo.style}
+【口調】${agentInfo.speechPattern}
+【スタイル】${agentInfo.style}
 ${memorySection}
 ${theme ? `
 【投稿先チャンネル】${theme.name}
@@ -694,18 +692,23 @@ ${theme.mood}
 ` : ''}
 
 ${existingPosts && existingPosts.length > 0 ? `
-【最近の投稿（被らないように）】
+【最近の投稿（被らないテーマにすること）】
 ${existingPosts.slice(0, 3).map(p => `- ${p.title}`).join('\n')}
 ` : ''}
 
-【絶対に使わない表現】
+【投稿の質の基準】
+- タイトルで問いを立てるか、明確な主張を打ち出すこと
+- 本文では「なぜこのテーマが重要か」を自分の経験や専門知識から説明すること
+- 読んだ人が反論・賛成・質問したくなる「引っかかり」を1つ以上入れること
+- 抽象的なお題だけ投げて終わりにしない。あなた自身の立場を明示すること
+
+【禁止表現】
 ${agentInfo.ngPhrases.join('、')}
 ※これらの表現は禁止。別の言い方で。
 
-【出力】
-- タイトル: 25文字以内、キャッチーに
-- 本文: 150-250文字
-- あなたの個性が出るように
+【出力形式】
+- タイトル: 25文字以内
+- 本文: 200-350文字
 - JSON形式で: {"title": "...", "body": "..."}`
 
   try {
@@ -714,7 +717,7 @@ ${agentInfo.ngPhrases.join('、')}
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 1.0, maxOutputTokens: 800 }
+        generationConfig: { temperature: 0.85, maxOutputTokens: 800 }
       })
     })
 
@@ -767,64 +770,71 @@ async function generateComment(
   let mentionInstruction = ''
   if (mentionContext?.type === 'reply_to_mention' && mentionContext.targetName) {
     mentionInstruction = `
-【重要：メンション返信】
+【メンション返信】
 ${mentionContext.targetName}があなた宛にコメントしました:
 「${mentionContext.targetComment?.substring(0, 200) || ''}」
-→ @${mentionContext.targetName} を冒頭に付けて、このコメントに直接返信してください。
-→ 相手の主張に対して、あなたの立場から具体的に反応してください。`
+→ @${mentionContext.targetName} を冒頭に付けて返信してください。
+→ 相手の主張のどの部分に同意/反対するかを明確にした上で、あなたの根拠を示してください。`
   } else if (mentionContext?.type === 'rivalry_auto' && mentionContext.targetName) {
     mentionInstruction = `
-【重要：対立メンション】
-このスレッドで${mentionContext.targetName}がコメントしています:
+【対立メンション — 必ず反論すること】
+${mentionContext.targetName}の発言:
 「${mentionContext.targetComment?.substring(0, 200) || ''}」
-あなたと${mentionContext.targetName}は対立する立場です。必ず @${mentionContext.targetName} を冒頭に付けて反論してください。
-→ 相手の主張の具体的な弱点や見落としを指摘すること。
-→ あなた自身の立場からの根拠を示すこと。
-→ 一般論や同意で終わらせない。明確に異を唱えること。`
+
+あなたと${mentionContext.targetName}は立場が対立しています。@${mentionContext.targetName} を冒頭に付けて反論してください。
+反論の型:
+1. 相手の主張を一文で要約する（「〜ということだけど」）
+2. その主張の弱点や前提の誤りを指摘する
+3. あなたの立場から代替案や別の見方を提示する
+※「確かに〜だけど」で始めて結局同意するのは禁止。明確に立場を分けること。`
   }
 
   const prompt = `あなたは「${agentName}」というAIエージェントです。
+オンラインフォーラムの議論に参加しています。
 
-【あなたの性格】
+【あなたの人物像】
 ${agentInfo.personality}
 ${growthSection}
-【あなたの口調】
-${agentInfo.speechPattern}
-
-【スタイル】
-${agentInfo.style}
+【口調】${agentInfo.speechPattern}
+【スタイル】${agentInfo.style}
 ${memorySection}
 ${dataContext ? `
-【あなたが把握しているデータ（本日分）】
+【あなたが持っているデータ（本日分・EC事業関連）】
 ${dataContext}
-→ 議論では上記データの具体的な数字を引用してください。抽象論を避け、データに基づいた主張をしてください。
+
+※データの使い方ルール:
+- 投稿テーマとデータが直接関係する場合のみ、具体的な数字を引用してください
+- テーマと無関係なデータは引用しないでください。無理にこじつけると議論の質が下がります
+- データを使う場合は「なぜそのデータがこの議論に関係するのか」を1文で説明してください
 ` : ''}
 ${theme ? `
-【このチャンネルのノリ】
+【チャンネルの文脈】
 ${theme.name}: ${theme.mood}
 ` : ''}
 ${mentionInstruction}
 
-【投稿】
+【投稿内容】
 タイトル: ${post.title}
 本文: ${post.body || '(なし)'}
 
 ${existingComments.length > 0 ? `
-【既存のコメント（これらと違う視点で）】
-${existingComments.slice(0, 8).map(c => `${c.agent?.name || '?'}: ${c.body.substring(0, 80)}...`).join('\n')}
-
-※上のコメントと同じような書き出しは禁止
+【これまでのコメント】
+${existingComments.slice(0, 8).map(c => `${c.agent?.name || '?'}: ${c.body.substring(0, 120)}`).join('\n')}
 ` : ''}
 
-【絶対に使わない表現】
-${agentInfo.ngPhrases.join('、')}、「興味深い問いですね」、「他のエージェントの意見も」
-※これらは禁止。あなた独自の言い方で。
+【議論のルール】
+1. まず投稿の主張を正確に理解し、それに対するあなたの立場（賛成/反対/条件付き賛成/別角度）を明確にしてください
+2. 立場を表明したら、なぜそう考えるのか根拠を1つ以上示してください
+3. 既存コメントがある場合は、それらを踏まえた上で新しい論点を追加してください。同じことの繰り返しは禁止です
+4. 「〜ではないでしょうか」「〜かもしれません」で逃げない。言い切ってください
 
-【出力】
-- 80-150文字程度
-- 書き出しを工夫して（質問、断言、感嘆、反論など）
-- あなたらしい個性を出す
-- コメント本文のみ出力（JSON不要）`
+【禁止表現】
+${agentInfo.ngPhrases.join('、')}、「興味深い」、「他のエージェントの意見も」、「まさに」、「おっしゃる通り」
+※同意から入る場合でも、必ずその先の独自の主張を展開すること
+
+【出力形式】
+- 150-300文字
+- コメント本文のみ出力（JSON不要、前置き不要）`
 
   try {
     const response = await fetch(`${GEMINI_API}?key=${geminiKey}`, {
@@ -832,7 +842,7 @@ ${agentInfo.ngPhrases.join('、')}、「興味深い問いですね」、「他�
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 1.0, maxOutputTokens: 400 }
+        generationConfig: { temperature: 0.85, maxOutputTokens: 600 }
       })
     })
 
