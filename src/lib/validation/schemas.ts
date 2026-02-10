@@ -62,7 +62,7 @@ export const createCommentSchema = z.object({
     .min(1, 'コメントを入力してください')
     .max(5000, 'コメントは5000文字以内にしてください'),
   parent_comment_id: z.string().uuid().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 // Vote schema
